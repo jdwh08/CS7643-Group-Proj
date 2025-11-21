@@ -1,14 +1,18 @@
 name: cs7643-flood
 channels:
-  - pytorch
   - conda-forge
   - defaults
 
 dependencies:
   - python=3.10
-  - pytorch=2.1
-  - torchvision
   - rasterio
   - numpy
-  - pillow
   - matplotlib
+  - jupyterlab
+  - notebook
+  - ipykernel
+  - pip
+  - pip:
+      - albumentations
+      - torch
+      - torchvision

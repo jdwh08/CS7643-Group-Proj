@@ -16,8 +16,14 @@ This will create an environment called cs7643-flood
 
 #### 4 - Updating the environment
 
-if the environment.yml is updated, run:
+If you make changes to the `environment.yml` file (for example, adding new
+packages like albumentations), you need to update your local conda
+environment so that it matches the updated file.
+
+After modifying `environment.yml`, run:
 `conda env update -f environment.yml --prune`
+This installs new dependencies, removes outdated ones, and keeps everyone’s
+environment consistent.
 
 ### Data Setup
 
@@ -55,9 +61,13 @@ All files are stored under:
 `./data/`
 unless you override DATA_ROOT.
 
-### 3 - Optional
+### 3 - Sanity Check
 
 Explore the dataset with:
 
-- src/data/dataloaders.py
-- notebooks/data_exploration.ipynb
+```
+cd notebooks
+jupyter notebook data_exploration.ipynb
+```
+
+You can see raw tiles from S1Hand & S1Weak. Raw vs augmented tiles are also visualized.
