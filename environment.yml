@@ -1,0 +1,16 @@
+name: CS7643_Group_Proj
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  # The base environment is stable and independent of hardware
+  - python=3.12 
+  - pip
+  - scipy=1.16.3
+  - pip:
+    # List core packages with version pins. 
+    # The actual binaries (CPU, CUDA, or ROCm) are installed later via flags.
+    - torch==2.9.0
+    - torchvision==0.24.0
+    - torchaudio==2.9.0
+    - transformers==4.57.1
