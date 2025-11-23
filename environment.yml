@@ -11,8 +11,10 @@ dependencies:
   - jupyterlab
   - notebook
   - ipykernel
+  - scipy
   - pip
   - pip:
       - albumentations
       - torch
       - torchvision
+      - terratorch
