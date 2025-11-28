@@ -16,3 +16,4 @@ dependencies:
       - albumentations
       - torch
       - torchvision
+      - tqdm
