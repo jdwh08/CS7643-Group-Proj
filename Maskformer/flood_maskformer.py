@@ -20,8 +20,10 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import yaml
 from config import Config
+import datetime
 
 from src.data.loaders import make_s1hand_loaders, make_s1weak_loader
+
 # from matplotlib.colors import ListedColormap, LinearSegmentedColormap
 from matplotlib import cm
 
@@ -31,12 +33,16 @@ class FloodMaskformer:
     Maskformer module for non-pretrained Sentinel 1 inference.
     """
 
-    def __init__(
-        self, dataset="weak"
-    ):
-        with open("", "r") as file:
-            config_dict = yaml.safe_load(file)
-            self.config = Config(config_dict=config_dict)
+    def __init__(self, dataset="weak"):
+
+        self.base_dir = os.path.abspath(os.path.dirname(__file__))
+        self.PROJECT_ROOT = os.path.abspath(os.path.join(self.base_dir, ".."))
+        self.DATA_ROOT = os.path.join(self.PROJECT_ROOT, "data")
+
+        self.config_path = os.path.join(self.base_dir, "config_maskformer.yml")
+        with open(self.config_path, "r") as file:
+            self.config_dict = yaml.safe_load(file)
+            self.config = Config(config_dict=self.config_dict)
 
         self.batch_size = self.config.train.batch_size
         self.num_workers = self.config.train.num_workers
@@ -50,19 +56,20 @@ class FloodMaskformer:
             id2label={i: str(i) for i in range(2)},
             label2id={str(i): i for i in range(2)},
             num_channels=2,
-            backbone_kwargs={ #TODO: Should I make this a hyperparam? 
+            backbone_kwargs={  # TODO: Should I make this a hyperparam?
                 "output_hidden_states": True,
                 "out_indices": [
                     0,
                     1,
                     2,
                     3,
-                ],  # Request features from all 4 stages (strides 4, 8, 16, 32)
+                ],  # Request features from all 4 stages (strides 4,8,16,32)
             },
         )
 
         self.model = MaskFormerForInstanceSegmentation(self.maskformer_config)
 
+        self.save_path = None
         feature_extractor = self.model.model.pixel_level_module.encoder
 
         # first layer expects 3 channels, replace with 2 channels for Sen-1
@@ -73,30 +80,50 @@ class FloodMaskformer:
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(device)
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=self.weight_decay)
-        self.PROJECT_ROOT = os.path.abspath(".")
-        self.DATA_ROOT = os.path.join(self.PROJECT_ROOT, "data")
-        self.hand_train_loader, self.val_loader, self.test_loader = make_s1hand_loaders(self.DATA_ROOT, self.batch_size, self.num_workers)
-  
-        self.train_loader = make_s1weak_loader(self.DATA_ROOT, self.batch_size, self.num_workers) if dataset == "weak" else self.hand_train_loader
+        self.optimizer = torch.optim.Adam(
+            self.model.parameters(), lr=self.lr, weight_decay=self.weight_decay
+        )
 
+        self.processor = MaskFormerImageProcessor(
+            do_normalize=False,
+            do_reduce_labels=False,
+            do_resize=False,
+            do_rescale=False,
+            ignore_index=255,
+            num_labels=2,
+            size=(256, 256),
+        )
 
-        self.metrics = evaluate.load("mean_iou")
-        self.train_loss = []
-        self.val_loss = []
-        self.train_iou = []
-        self.val_iou = []
+        self.hand_train_loader, self.val_loader, self.test_loader = make_s1hand_loaders(
+            self.DATA_ROOT, self.batch_size, self.num_workers
+        )
 
+        self.train_loader = (
+            make_s1weak_loader(self.DATA_ROOT, self.batch_size, self.num_workers)
+            if dataset == "weak"
+            else self.hand_train_loader
+        )
+        self.train_metrics = evaluate.load("mean_iou")
+        self.val_metrics = evaluate.load("mean_iou")
+        self.train_loss_history = []
+        self.val_loss_history = []
+        self.train_iou_history = []
+        self.val_iou_history = []
 
     def training(self):
         for epoch in range(self.n_epochs):
-                pass
+            self.train()
+            self.evaluate()
+        curr_time = datetime.datetime.now()
+        format_time = "%Y%m%d_%H:%M"
+        timestamp = curr_time.strftime(format_time)
+        self.save_path = os.path.join(self.base_dir, f"maskformer_run_{timestamp}")
 
     def train(self):
         self.model.train()
         progress_bar = tqdm(self.train_loader)
         curr_epoch_loss = []
-        curr_epoch_iou = []
+        self.train_metrics.reset()
         for i, (img, mask) in enumerate(progress_bar):
             self.optimizer.zero_grad()
             mask_labels, class_labels = self.reshape_mask(mask)
@@ -110,19 +137,27 @@ class FloodMaskformer:
             )
 
             loss = out.loss
+            seg_mask = self.processor.post_process_semantic_segmentation(out)
+            self.train_metrics.add_batch(predictions=seg_mask, references=mask)
             curr_epoch_loss.append(loss.item())
-            curr_epoch_iou.append()
             loss.backward()
             self.optimizer.step()
-        self.train_loss.append(sum(curr_epoch_loss)/len(curr_epoch_loss))
-        self.train_iou.append(sum(curr_epoch_iou)/len(curr_epoch_iou))
-                              
+
+        epoch_iou = self.train_metrics.compute(
+            num_labels=2,
+            ignore_index=255,
+        )
+        self.train_loss_history.append(sum(curr_epoch_loss) / len(curr_epoch_loss))
+        self.train_iou_history.append(epoch_iou["mean_iou"])
+
     def evaluate(self):
         self.model.eval()
+        curr_epoch_loss = []
+        self.val_metrics.reset()
         progress_bar = tqdm(self.val_loader)
         with torch.no_grad():
             for i, (img, mask) in enumerate(progress_bar):
-            
+
                 mask_labels, class_labels = self.reshape_mask(mask)
 
                 out = self.model.forward(
@@ -130,30 +165,100 @@ class FloodMaskformer:
                     mask_labels=[
                         labels.to(self.device) for labels in mask_labels
                     ],  # (2, 2, 256, 256)
-                    class_labels=[labels.to(self.device) for labels in class_labels],  # (2)
+                    class_labels=[
+                        labels.to(self.device) for labels in class_labels
+                    ],  # (2)
                 )
 
                 loss = out.loss
-                self.val_loss.append(loss.item())
-                self.val_iou.append()
 
-    @staticmethod
-    def get_iou(output, target):
-        output = torch.argmax(output, dim=1).flatten() 
-        target = target.flatten()
-        
-        no_ignore = target.ne(255).cuda()
-        output = output.masked_select(no_ignore)
-        target = target.masked_select(no_ignore)
-        intersection = torch.sum(output * target)
-        union = torch.sum(target) + torch.sum(output) - intersection
-        iou = (intersection + .0000001) / (union + .0000001)
-        
-        if iou != iou:
-            print("failed, replacing with 0")
-            iou = torch.tensor(0).float()
-        
-        return iou
+                seg_mask = self.processor.post_process_semantic_segmentation(out)
+
+                curr_epoch_loss.append(loss.item())
+                # NOTE: May need to convert to numpy?
+                self.val_metrics.add_batch(predictions=seg_mask, references=mask)
+
+            epoch_iou = self.val_metrics.compute(
+                num_labels=2,
+                ignore_index=255,
+            )
+            self.val_loss_history.append(sum(curr_epoch_loss) / len(curr_epoch_loss))
+            self.val_iou_history.append(epoch_iou["mean_iou"])
+
+    # @staticmethod
+    # def get_iou(output, target):
+    #     output = torch.argmax(output, dim=1).flatten()
+    #     target = target.flatten()
+
+    #     no_ignore = target.ne(255).cuda()
+    #     output = output.masked_select(no_ignore)
+    #     target = target.masked_select(no_ignore)
+    #     intersection = torch.sum(output * target)
+    #     union = torch.sum(target) + torch.sum(output) - intersection
+    #     iou = (intersection + 0.0000001) / (union + 0.0000001)
+
+    #     if iou != iou:
+    #         print("failed, replacing with 0")
+    #         iou = torch.tensor(0).float()
+
+    #     return iou
+
+    def save_model(
+        self,
+    ):
+        self.model.save_pretrained(self.save_path)
+        self.generate_learning_curves()
+        self.save_metrics()
+
+    def generate_learning_curves(self):
+        plt.plot(self.train_loss_history)
+        plt.plot(self.val_loss_history)
+        plt.xlabel("Epoch #")
+        plt.ylabel("Loss")
+        plt.title("Loss Learning Curve")
+        plt.grid()
+        plt.tight_layout()
+
+        loss_path = os.path.join(self.save_path, "loss_curve.png")
+        plt.savefig(loss_path)
+        plt.close()
+
+        plt.plot(self.train_iou_history)
+        plt.plot(self.val_iou_history)
+        plt.xlabel("Epoch #")
+        plt.ylabel("Mean IoU")
+        plt.title("Mean IoU Learning Curve")
+        plt.grid()
+        plt.tight_layout()
+        iou_path = os.path.join(self.save_path, "iou_curve.png")
+        plt.savefig(iou_path)
+        plt.close()
+
+    def save_metrics(self):
+        try:
+
+            file_name = os.path.join(self.save_path, "config.yml")
+            with open(file_name, "w") as file:
+
+                metric_dict = {
+                    **self.config_dict,
+                    "IoU": self.val_iou_history[-1],
+                    "Loss": self.val_loss_history[-1],
+                }
+                yaml.dump(metric_dict, file, default_flow_style=False, sort_keys=False)
+
+            print(f"\nSuccessfully wrote data to {file_name}")
+
+
+            # with open(file_name, "r") as file:
+            #     yaml_content = file.read()
+            #     print(yaml_content)
+
+        except ImportError:
+            print("\nERROR: The 'PyYAML' library is not installed.")
+            print("Please run: pip install PyYAML")
+        except Exception as e:
+            print(f"An error occurred: {e}")
 
     def reshape_mask(self, masks):
         """
