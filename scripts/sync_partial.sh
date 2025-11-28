@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Auto-detect PACE
+if command -v pace-quota >/dev/null 2>&1; then
+  IS_PACE=1
+else
+  IS_PACE=0
+fi
+
+
 DATA_ROOT="${DATA_ROOT:-$(pwd)/data}"
+echo "[env] Using DATA_ROOT=$DATA_ROOT"
 
 mkdir -p "$DATA_ROOT/HandLabeled/S1Hand/"
 mkdir -p "$DATA_ROOT/HandLabeled/S2Hand/"
@@ -76,7 +85,7 @@ with open(sel_path, "w") as f:
 PY
 fi
 
-echo "Copying selected S1Weak/S2Weak tiles and matching Otsu masks..."
+echo "Copying selected S1Weak/S2Weak tiles and matching masks..."
 # Build lists of URIs for batch copying (one list per destination directory)
 TMP_S1_URIS=$(mktemp)
 TMP_S1_LABEL_URIS=$(mktemp)
@@ -104,37 +113,60 @@ while read -r uri; do
   echo "gs://sen1floods11/v1.1/data/flood_events/WeaklyLabeled/S2IndexLabelWeak/$s2_label_file" >> "$TMP_S2_LABEL_URIS"
 done < "$TMP_SEL"
 
+if [[ "$IS_PACE" -eq 1 ]]; then
 # Batch copy all files in parallel using gsutil -m cp
 # Use -n (no-clobber) to avoid re-downloading existing files
 # Read URIs into arrays and expand them as arguments to gsutil
 echo "  Copying S1 images..."
-if [ -s "$TMP_S1_URIS" ]; then
-  mapfile -t s1_uris < "$TMP_S1_URIS"
-  [ ${#s1_uris[@]} -gt 0 ] && gsutil -m cp -n "${s1_uris[@]}" "$DATA_ROOT/WeaklyLabeled/S1Weak/" 2>&1 | grep -v "Skipping\|Copying" || true
-fi
+  if [ -s "$TMP_S1_URIS" ]; then
+    mapfile -t s1_uris < "$TMP_S1_URIS"
+    [ ${#s1_uris[@]} -gt 0 ] && gsutil -m cp -n "${s1_uris[@]}" "$DATA_ROOT/WeaklyLabeled/S1Weak/" 2>&1 | grep -v "Skipping\|Copying" || true
+  fi
 
-echo "  Copying S1 labels..."
-if [ -s "$TMP_S1_LABEL_URIS" ]; then
-  mapfile -t s1_label_uris < "$TMP_S1_LABEL_URIS"
-  [ ${#s1_label_uris[@]} -gt 0 ] && gsutil -m cp -n "${s1_label_uris[@]}" "$DATA_ROOT/WeaklyLabeled/S1OtsuLabelWeak/" 2>&1 | grep -v "Skipping\|Copying" || true
-fi
+  echo "  Copying S1 labels..."
+  if [ -s "$TMP_S1_LABEL_URIS" ]; then
+    mapfile -t s1_label_uris < "$TMP_S1_LABEL_URIS"
+    [ ${#s1_label_uris[@]} -gt 0 ] && gsutil -m cp -n "${s1_label_uris[@]}" "$DATA_ROOT/WeaklyLabeled/S1OtsuLabelWeak/" 2>&1 | grep -v "Skipping\|Copying" || true
+  fi
 
-echo "  Copying S2 images..."
-if [ -s "$TMP_S2_URIS" ]; then
-  mapfile -t s2_uris < "$TMP_S2_URIS"
-  [ ${#s2_uris[@]} -gt 0 ] && gsutil -m cp -n "${s2_uris[@]}" "$DATA_ROOT/WeaklyLabeled/S2Weak/" 2>&1 | grep -v "Skipping\|Copying" || true
-fi
+  echo "  Copying S2 images..."
+  if [ -s "$TMP_S2_URIS" ]; then
+    mapfile -t s2_uris < "$TMP_S2_URIS"
+    [ ${#s2_uris[@]} -gt 0 ] && gsutil -m cp -n "${s2_uris[@]}" "$DATA_ROOT/WeaklyLabeled/S2Weak/" 2>&1 | grep -v "Skipping\|Copying" || true
+  fi
 
-echo "  Copying S2 labels..."
-if [ -s "$TMP_S2_LABEL_URIS" ]; then
-  mapfile -t s2_label_uris < "$TMP_S2_LABEL_URIS"
-  [ ${#s2_label_uris[@]} -gt 0 ] && gsutil -m cp -n "${s2_label_uris[@]}" "$DATA_ROOT/WeaklyLabeled/S2IndexLabelWeak/" 2>&1 | grep -v "Skipping\|Copying" || true
+  echo "  Copying S2 labels..."
+  if [ -s "$TMP_S2_LABEL_URIS" ]; then
+    mapfile -t s2_label_uris < "$TMP_S2_LABEL_URIS"
+    [ ${#s2_label_uris[@]} -gt 0 ] && gsutil -m cp -n "${s2_label_uris[@]}" "$DATA_ROOT/WeaklyLabeled/S2IndexLabelWeak/" 2>&1 | grep -v "Skipping\|Copying" || true
+  fi
+else
+# gsutil -m cp and mapfile breaks on macOS, remove them and use plain gsutil cp
+  echo "  Copying S1 images..."
+  if [ -s "$TMP_S1_URIS" ]; then
+    gsutil cp -n $(cat "$TMP_S1_URIS") "$DATA_ROOT/WeaklyLabeled/S1Weak/" 2>&1 | grep -v "Skipping\|Copying" || true
+  fi
+
+  echo "  Copying S1 labels..."
+  if [ -s "$TMP_S1_LABEL_URIS" ]; then
+    gsutil cp -n $(cat "$TMP_S1_LABEL_URIS") "$DATA_ROOT/WeaklyLabeled/S1OtsuLabelWeak/" 2>&1 | grep -v "Skipping\|Copying" || true
+  fi
+
+  echo "  Copying S2 images..."
+  if [ -s "$TMP_S2_URIS" ]; then
+    gsutil cp -n $(cat "$TMP_S2_URIS") "$DATA_ROOT/WeaklyLabeled/S2Weak/" 2>&1 | grep -v "Skipping\|Copying" || true
+  fi
+
+  echo "  Copying S2 labels..."
+  if [ -s "$TMP_S2_LABEL_URIS" ]; then
+    gsutil cp -n $(cat "$TMP_S2_LABEL_URIS") "$DATA_ROOT/WeaklyLabeled/S2IndexLabelWeak/" 2>&1 | grep -v "Skipping\|Copying" || true
+  fi
 fi
 
 rm -f "$TMP_S1_URIS" "$TMP_S1_LABEL_URIS" "$TMP_S2_URIS" "$TMP_S2_LABEL_URIS"
 rm -f "$TMP_ALL" "$TMP_SEL"
 
-echo "=== Done (local). Structure under $DATA_ROOT: ==="
+echo "=== Done (partial). Structure under $DATA_ROOT: ==="
 echo "  HandLabeled/S1Hand"
 echo "  HandLabeled/S2Hand"
 echo "  HandLabeled/LabelHand"
