@@ -21,11 +21,21 @@ import matplotlib.patches as mpatches
 import yaml
 from config import Config
 import datetime
+import sys
 
 from src.data.loaders import make_s1hand_loaders, make_s1weak_loader
+import random
+import rasterio
+from src.data.io import clean_hand_mask
 
 # from matplotlib.colors import ListedColormap, LinearSegmentedColormap
 from matplotlib import cm
+
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
+DATA_ROOT = os.path.join(PROJECT_ROOT, "data")
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 
 class FloodMaskformer:
@@ -35,11 +45,7 @@ class FloodMaskformer:
 
     def __init__(self, dataset="weak"):
 
-        self.base_dir = os.path.abspath(os.path.dirname(__file__))
-        self.PROJECT_ROOT = os.path.abspath(os.path.join(self.base_dir, ".."))
-        self.DATA_ROOT = os.path.join(self.PROJECT_ROOT, "data")
-
-        self.config_path = os.path.join(self.base_dir, "config_maskformer.yml")
+        self.config_path = os.path.join(BASE_DIR, "config_maskformer.yml")
         with open(self.config_path, "r") as file:
             self.config_dict = yaml.safe_load(file)
             self.config = Config(config_dict=self.config_dict)
@@ -95,11 +101,11 @@ class FloodMaskformer:
         )
 
         self.hand_train_loader, self.val_loader, self.test_loader = make_s1hand_loaders(
-            self.DATA_ROOT, self.batch_size, self.num_workers
+            DATA_ROOT, self.batch_size, self.num_workers
         )
 
         self.train_loader = (
-            make_s1weak_loader(self.DATA_ROOT, self.batch_size, self.num_workers)
+            make_s1weak_loader(DATA_ROOT, self.batch_size, self.num_workers)
             if dataset == "weak"
             else self.hand_train_loader
         )
@@ -117,7 +123,7 @@ class FloodMaskformer:
         curr_time = datetime.datetime.now()
         format_time = "%Y%m%d_%H:%M"
         timestamp = curr_time.strftime(format_time)
-        self.save_path = os.path.join(self.base_dir, f"maskformer_run_{timestamp}")
+        self.save_path = os.path.join(BASE_DIR, f"maskformer_run_{timestamp}")
 
     def train(self):
         self.model.train()
@@ -150,40 +156,39 @@ class FloodMaskformer:
         self.train_loss_history.append(sum(curr_epoch_loss) / len(curr_epoch_loss))
         self.train_iou_history.append(epoch_iou["mean_iou"])
 
+    @torch.no_grad()
     def evaluate(self):
         self.model.eval()
         curr_epoch_loss = []
         self.val_metrics.reset()
         progress_bar = tqdm(self.val_loader)
-        with torch.no_grad():
-            for i, (img, mask) in enumerate(progress_bar):
 
-                mask_labels, class_labels = self.reshape_mask(mask)
+        for i, (img, mask) in enumerate(progress_bar):
 
-                out = self.model.forward(
-                    pixel_values=img.to(self.device),  # (2,3,256, 256)
-                    mask_labels=[
-                        labels.to(self.device) for labels in mask_labels
-                    ],  # (2, 2, 256, 256)
-                    class_labels=[
-                        labels.to(self.device) for labels in class_labels
-                    ],  # (2)
-                )
+            mask_labels, class_labels = self.reshape_mask(mask)
 
-                loss = out.loss
-
-                seg_mask = self.processor.post_process_semantic_segmentation(out)
-
-                curr_epoch_loss.append(loss.item())
-                # NOTE: May need to convert to numpy?
-                self.val_metrics.add_batch(predictions=seg_mask, references=mask)
-
-            epoch_iou = self.val_metrics.compute(
-                num_labels=2,
-                ignore_index=255,
+            out = self.model.forward(
+                pixel_values=img.to(self.device),  # (2,3,256, 256)
+                mask_labels=[
+                    labels.to(self.device) for labels in mask_labels
+                ],  # (2, 2, 256, 256)
+                class_labels=[labels.to(self.device) for labels in class_labels],  # (2)
             )
-            self.val_loss_history.append(sum(curr_epoch_loss) / len(curr_epoch_loss))
-            self.val_iou_history.append(epoch_iou["mean_iou"])
+
+            loss = out.loss
+
+            seg_mask = self.processor.post_process_semantic_segmentation(out)
+
+            curr_epoch_loss.append(loss.item())
+            # NOTE: May need to convert to numpy?
+            self.val_metrics.add_batch(predictions=seg_mask, references=mask)
+
+        epoch_iou = self.val_metrics.compute(
+            num_labels=2,
+            ignore_index=255,
+        )
+        self.val_loss_history.append(sum(curr_epoch_loss) / len(curr_epoch_loss))
+        self.val_iou_history.append(epoch_iou["mean_iou"])
 
     # @staticmethod
     # def get_iou(output, target):
@@ -249,16 +254,54 @@ class FloodMaskformer:
 
             print(f"\nSuccessfully wrote data to {file_name}")
 
-
-            # with open(file_name, "r") as file:
-            #     yaml_content = file.read()
-            #     print(yaml_content)
-
         except ImportError:
             print("\nERROR: The 'PyYAML' library is not installed.")
             print("Please run: pip install PyYAML")
         except Exception as e:
             print(f"An error occurred: {e}")
+
+    @torch.no_grad()
+    def generate_mask(self):
+        """
+        saves image, target mask, and predicted mask for visualization.
+        Uses first image/mask from validation set.
+        """
+        self.model.eval()
+        iterator = iter(self.val_loader)
+
+        test_img, mask = next(iterator)
+
+        out = self.model.forward(pixel_values=test_img[0].unsqueeze(0).to(self.device))
+
+        # Post Process
+
+        result = self.processor.post_process_semantic_segmentation(out)
+        vv = test_img[0][0]
+        vh = test_img[0][1]
+        seg_mask = result[0]
+
+        mask = clean_hand_mask(mask[0])
+        mask_vis = mask.astype(float)
+        mask_vis[mask_vis == 255] = np.nan
+
+        pred_mask = clean_hand_mask(seg_mask)
+        pred_mask_vis = pred_mask.astype(float)
+        pred_mask_vis[pred_mask_vis == 255] = np.nan
+        fig, ax = plt.subplots(1, 4, figsize=(18, 5))
+        ax[0].imshow(vv, cmap="gray")
+        ax[0].set_title("VV")
+
+        ax[1].imshow(vh, cmap="gray")
+        ax[1].set_title("VH")
+
+        ax[2].imshow(mask_vis, cmap="Reds", vmin=0, vmax=1)
+        ax[2].set_title("Hand Mask (cleaned)")
+
+        ax[3].imshow(pred_mask_vis, cmap="Reds", vmin=0, vmax=1)
+        ax[3].set_title("Predicted Mask (cleaned)")
+        plot_path = os.path.join(self.save_path, "visualization.png")
+        plt.savefig(plot_path)
+        plt.close()
 
     def reshape_mask(self, masks):
         """
@@ -280,18 +323,18 @@ class FloodMaskformer:
         class_labels = [torch.tensor([0, 1]) for _ in range(self.batch_size)]  # (b,2)
         return binary_mask_list, class_labels
 
-    def draw_semantic_segmentation(self, segmentation):
-        # get the used color map
-        viridis = cm.get_cmap("viridis", torch.max(segmentation))
-        # get all the unique numbers
-        labels_ids = torch.unique(segmentation).tolist()
-        fig, ax = plt.subplots()
-        ax.imshow(segmentation)
-        handles = []
-        for label_id in labels_ids:
-            label = self.model.config.id2label[label_id]
-            color = viridis(label_id)
-            handles.append(mpatches.Patch(color=color, label=label))
-        ax.legend(handles=handles)
-        plt.show()
-        return fig
+    # def draw_semantic_segmentation(self, segmentation):
+    #     # get the used color map
+    #     viridis = cm.get_cmap("viridis", torch.max(segmentation))
+    #     # get all the unique numbers
+    #     labels_ids = torch.unique(segmentation).tolist()
+    #     fig, ax = plt.subplots()
+    #     ax.imshow(segmentation)
+    #     handles = []
+    #     for label_id in labels_ids:
+    #         label = self.model.config.id2label[label_id]
+    #         color = viridis(label_id)
+    #         handles.append(mpatches.Patch(color=color, label=label))
+    #     ax.legend(handles=handles)
+    #     plt.show()
+    #     return fig
