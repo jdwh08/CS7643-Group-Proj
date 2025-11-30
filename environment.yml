@@ -17,5 +17,6 @@ dependencies:
       - albumentations
       - torch
       - torchvision
+      - terratorch
       - transformers
       - evaluate
