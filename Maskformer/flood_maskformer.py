@@ -126,10 +126,6 @@ class FloodMaskformer:
             print(f"epoch {epoch}")
             self.train()
             self.evaluate()
-        curr_time = datetime.datetime.now()
-        format_time = "%Y%m%d_%H:%M"
-        timestamp = curr_time.strftime(format_time)
-        self.save_path = os.path.join(LOG_DIR, f"maskformer_run_{timestamp}")
 
     def train(self):
         self.model.train()
@@ -223,7 +219,12 @@ class FloodMaskformer:
     def save_model(
         self,
     ):
-        state_dict_path = os.path.join(LOG_DIR, "weights.pth")
+        curr_time = datetime.datetime.now()
+        format_time = "%Y%m%d_%H:%M"
+        timestamp = curr_time.strftime(format_time)
+        self.save_path = os.path.join(LOG_DIR, f"maskformer_run_{timestamp}")
+        os.makedirs(self.save_path, exist_ok=True)
+        state_dict_path = os.path.join(self.save_path, "weights.pth")
         torch.save(self.model.state_dict(), state_dict_path)
         self.generate_learning_curves()
         self.save_metrics()
@@ -283,23 +284,23 @@ class FloodMaskformer:
         Uses first image/mask from validation set.
         """
         self.model.eval()
-        iterator = iter(self.val_loader)
+        iterator = iter(self.test_loader)
 
         test_img, mask = next(iterator)
 
-        out = self.model.forward(pixel_values=test_img[0].unsqueeze(0).to(self.device))
+        out = self.model.forward(pixel_values=test_img[3].unsqueeze(0).to(self.device))
 
         # Post Process
 
         result = self.processor.post_process_semantic_segmentation(out)
-        vv = test_img[0][0]
-        vh = test_img[0][1]
+        vv = test_img[3][0]
+        vh = test_img[3][1]
         seg_mask = result[0]
-        print("MASK SHAPE AND UNIQUE VALUES", mask[0].shape, np.unique(mask[0].numpy()))
-        mask = clean_hand_mask(mask[0].numpy())
+        print("MASK SHAPE AND UNIQUE VALUES", mask[3].shape, np.unique(mask[3].numpy()))
+        mask = clean_hand_mask(mask[3].numpy())
         mask_vis = mask.astype(float)
         mask_vis[mask_vis == 255] = np.nan
-
+        print(np.unique(mask_vis))
         pred_mask = clean_hand_mask(seg_mask.numpy())
         pred_mask_vis = pred_mask.astype(float)
         pred_mask_vis[pred_mask_vis == 255] = np.nan
@@ -342,11 +343,6 @@ class FloodMaskformer:
     def load_weights(self, model_dir):
         model_path = os.path.join(LOG_DIR, model_dir, "weights.pth")
         if os.path.exists(model_path):
-            curr_time = datetime.datetime.now()
-            format_time = "%Y%m%d_%H:%M"
-            timestamp = curr_time.strftime(format_time)
-            self.save_path = os.path.join(LOG_DIR, f"maskformer_run_{timestamp}")
-            print("SAVE PATH", self.save_path)
             state_dict = torch.load(model_path, map_location=self.device)
             self.model.load_state_dict(state_dict)
         else:
