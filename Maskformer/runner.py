@@ -33,5 +33,5 @@ maskformer = FloodMaskformer(dataset="weak")
 
 # maskformer.save_model()
 
-maskformer.load_weights("maskformer_run_20251129_09:31")
-maskformer.generate_plot()
+maskformer.load_weights("maskformer_run_20251130_08:46")
+maskformer.save_model()
