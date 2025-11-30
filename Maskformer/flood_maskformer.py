@@ -4,12 +4,9 @@ from transformers import (
     MaskFormerImageProcessor,
 )
 
-from PIL import Image
-import requests
+
 import os
 import torch
-
-from torch.utils.data import DataLoader
 
 from tqdm.auto import tqdm
 import numpy as np
@@ -17,18 +14,13 @@ import torch.nn as nn
 import evaluate
 import matplotlib.pyplot as plt
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 import yaml
 
 import datetime
 import sys
-import random
-import rasterio
 
 
-# from matplotlib.colors import ListedColormap, LinearSegmentedColormap
-from matplotlib import cm
-
+# Create paths for logging info and project root
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 LOG_DIR = os.path.join(BASE_DIR, "logs")
 PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
@@ -36,8 +28,6 @@ DATA_ROOT = os.path.join(PROJECT_ROOT, "data")
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from src.data.augmentations import get_train_transform, get_val_transform
-from src.data.s1weak import S1WeakDataset
 from src.data.loaders import make_s1hand_loaders, make_s1weak_loader
 from src.data.io import clean_hand_mask
 from config import Config
@@ -77,7 +67,7 @@ class FloodMaskformer:
                     1,
                     2,
                     3,
-                ],  # Request features from all 4 stages (strides 4,8,16,32)
+                ],  # pixel decoder wants feature maps at different stages
             },
         )
 
@@ -119,6 +109,8 @@ class FloodMaskformer:
         )
         self.train_metrics = evaluate.load("mean_iou")
         self.val_metrics = evaluate.load("mean_iou")
+
+        # per epoch metrics
         self.train_loss_history = []
         self.val_loss_history = []
         self.train_iou_history = []
@@ -134,7 +126,6 @@ class FloodMaskformer:
         self.model.train()
         progress_bar = tqdm(self.train_loader)
         curr_epoch_loss = []
-        # self.train_metrics.reset()
         for i, (img, mask) in enumerate(progress_bar):
             self.optimizer.zero_grad()
             mask_labels, class_labels = self.reshape_mask(mask)
@@ -153,6 +144,8 @@ class FloodMaskformer:
             seg_mask = self.processor.post_process_semantic_segmentation(
                 out, target_sizes=rescale_sizes
             )
+
+            # seg_mask is a list, recombine into a batched tensor
             seg_mask = torch.stack(seg_mask, dim=0)
             self.train_metrics.add_batch(predictions=seg_mask, references=mask)
             curr_epoch_loss.append(loss.item())
@@ -189,6 +182,8 @@ class FloodMaskformer:
             seg_mask = self.processor.post_process_semantic_segmentation(
                 out, target_sizes=rescale_sizes
             )
+
+            # seg_mask is a list, recombine into a batched tensor
             seg_mask = torch.stack(seg_mask, dim=0)
             curr_epoch_loss.append(loss.item())
             # NOTE: May need to convert to numpy?
