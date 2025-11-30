@@ -1,0 +1,8 @@
+train:
+  batch_size: 16
+  lr: .0005
+  n_epochs: 1
+  num_workers: 0
+optimizer:
+  type: 'adamw'
+  weight_decay: 0.0
