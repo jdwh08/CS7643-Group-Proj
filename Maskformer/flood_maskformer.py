@@ -8,9 +8,9 @@ from PIL import Image
 import requests
 import os
 import torch
-from src.data.s1weak import S1WeakDataset
+
 from torch.utils.data import DataLoader
-from src.data.augmentations import get_train_transform, get_val_transform
+
 from tqdm.auto import tqdm
 import numpy as np
 import torch.nn as nn
@@ -19,23 +19,28 @@ import matplotlib.pyplot as plt
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import yaml
-from config import Config
+
 import datetime
 import sys
-
-from src.data.loaders import make_s1hand_loaders, make_s1weak_loader
 import random
 import rasterio
-from src.data.io import clean_hand_mask
+
 
 # from matplotlib.colors import ListedColormap, LinearSegmentedColormap
 from matplotlib import cm
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+LOG_DIR = os.path.join(BASE_DIR, "logs")
 PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
 DATA_ROOT = os.path.join(PROJECT_ROOT, "data")
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
+
+from src.data.augmentations import get_train_transform, get_val_transform
+from src.data.s1weak import S1WeakDataset
+from src.data.loaders import make_s1hand_loaders, make_s1weak_loader
+from src.data.io import clean_hand_mask
+from config import Config
 
 
 class FloodMaskformer:
@@ -62,7 +67,7 @@ class FloodMaskformer:
             id2label={i: str(i) for i in range(2)},
             label2id={str(i): i for i in range(2)},
             num_channels=2,
-            backbone_kwargs={  # TODO: Should I make this a hyperparam?
+            backbone_kwargs={
                 "output_hidden_states": True,
                 "out_indices": [
                     0,
@@ -84,8 +89,8 @@ class FloodMaskformer:
             2, 64, kernel_size=7, stride=2, padding=3, bias=False
         )
 
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model.to(device)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model.to(self.device)
         self.optimizer = torch.optim.Adam(
             self.model.parameters(), lr=self.lr, weight_decay=self.weight_decay
         )
@@ -118,18 +123,19 @@ class FloodMaskformer:
 
     def training(self):
         for epoch in range(self.n_epochs):
+            print(f"epoch {epoch}")
             self.train()
             self.evaluate()
         curr_time = datetime.datetime.now()
         format_time = "%Y%m%d_%H:%M"
         timestamp = curr_time.strftime(format_time)
-        self.save_path = os.path.join(BASE_DIR, f"maskformer_run_{timestamp}")
+        self.save_path = os.path.join(LOG_DIR, f"maskformer_run_{timestamp}")
 
     def train(self):
         self.model.train()
         progress_bar = tqdm(self.train_loader)
         curr_epoch_loss = []
-        self.train_metrics.reset()
+        # self.train_metrics.reset()
         for i, (img, mask) in enumerate(progress_bar):
             self.optimizer.zero_grad()
             mask_labels, class_labels = self.reshape_mask(mask)
@@ -143,7 +149,12 @@ class FloodMaskformer:
             )
 
             loss = out.loss
-            seg_mask = self.processor.post_process_semantic_segmentation(out)
+
+            rescale_sizes = [(256, 256)] * img.shape[0]
+            seg_mask = self.processor.post_process_semantic_segmentation(
+                out, target_sizes=rescale_sizes
+            )
+            seg_mask = torch.stack(seg_mask, dim=0)
             self.train_metrics.add_batch(predictions=seg_mask, references=mask)
             curr_epoch_loss.append(loss.item())
             loss.backward()
@@ -160,7 +171,6 @@ class FloodMaskformer:
     def evaluate(self):
         self.model.eval()
         curr_epoch_loss = []
-        self.val_metrics.reset()
         progress_bar = tqdm(self.val_loader)
 
         for i, (img, mask) in enumerate(progress_bar):
@@ -176,9 +186,11 @@ class FloodMaskformer:
             )
 
             loss = out.loss
-
-            seg_mask = self.processor.post_process_semantic_segmentation(out)
-
+            rescale_sizes = [(256, 256)] * img.shape[0]
+            seg_mask = self.processor.post_process_semantic_segmentation(
+                out, target_sizes=rescale_sizes
+            )
+            seg_mask = torch.stack(seg_mask, dim=0)
             curr_epoch_loss.append(loss.item())
             # NOTE: May need to convert to numpy?
             self.val_metrics.add_batch(predictions=seg_mask, references=mask)
@@ -211,16 +223,19 @@ class FloodMaskformer:
     def save_model(
         self,
     ):
-        self.model.save_pretrained(self.save_path)
+        state_dict_path = os.path.join(LOG_DIR, "weights.pth")
+        torch.save(self.model.state_dict(), state_dict_path)
         self.generate_learning_curves()
         self.save_metrics()
+        self.generate_plot()
 
     def generate_learning_curves(self):
-        plt.plot(self.train_loss_history)
-        plt.plot(self.val_loss_history)
+        plt.plot(self.train_loss_history, label="Training")
+        plt.plot(self.val_loss_history, label="Validation")
         plt.xlabel("Epoch #")
         plt.ylabel("Loss")
         plt.title("Loss Learning Curve")
+        plt.legend()
         plt.grid()
         plt.tight_layout()
 
@@ -228,11 +243,12 @@ class FloodMaskformer:
         plt.savefig(loss_path)
         plt.close()
 
-        plt.plot(self.train_iou_history)
-        plt.plot(self.val_iou_history)
+        plt.plot(self.train_iou_history, label="Training")
+        plt.plot(self.val_iou_history, label="Validation")
         plt.xlabel("Epoch #")
         plt.ylabel("Mean IoU")
         plt.title("Mean IoU Learning Curve")
+        plt.legend()
         plt.grid()
         plt.tight_layout()
         iou_path = os.path.join(self.save_path, "iou_curve.png")
@@ -242,13 +258,13 @@ class FloodMaskformer:
     def save_metrics(self):
         try:
 
-            file_name = os.path.join(self.save_path, "config.yml")
+            file_name = os.path.join(self.save_path, "h_params_config.yml")
             with open(file_name, "w") as file:
 
                 metric_dict = {
                     **self.config_dict,
-                    "IoU": self.val_iou_history[-1],
                     "Loss": self.val_loss_history[-1],
+                    "IoU": self.val_iou_history[-1].item(),
                 }
                 yaml.dump(metric_dict, file, default_flow_style=False, sort_keys=False)
 
@@ -261,7 +277,7 @@ class FloodMaskformer:
             print(f"An error occurred: {e}")
 
     @torch.no_grad()
-    def generate_mask(self):
+    def generate_plot(self):
         """
         saves image, target mask, and predicted mask for visualization.
         Uses first image/mask from validation set.
@@ -279,12 +295,12 @@ class FloodMaskformer:
         vv = test_img[0][0]
         vh = test_img[0][1]
         seg_mask = result[0]
-
-        mask = clean_hand_mask(mask[0])
+        print("MASK SHAPE AND UNIQUE VALUES", mask[0].shape, np.unique(mask[0].numpy()))
+        mask = clean_hand_mask(mask[0].numpy())
         mask_vis = mask.astype(float)
         mask_vis[mask_vis == 255] = np.nan
 
-        pred_mask = clean_hand_mask(seg_mask)
+        pred_mask = clean_hand_mask(seg_mask.numpy())
         pred_mask_vis = pred_mask.astype(float)
         pred_mask_vis[pred_mask_vis == 255] = np.nan
         fig, ax = plt.subplots(1, 4, figsize=(18, 5))
@@ -322,6 +338,19 @@ class FloodMaskformer:
 
         class_labels = [torch.tensor([0, 1]) for _ in range(self.batch_size)]  # (b,2)
         return binary_mask_list, class_labels
+
+    def load_weights(self, model_dir):
+        model_path = os.path.join(LOG_DIR, model_dir, "weights.pth")
+        if os.path.exists(model_path):
+            curr_time = datetime.datetime.now()
+            format_time = "%Y%m%d_%H:%M"
+            timestamp = curr_time.strftime(format_time)
+            self.save_path = os.path.join(LOG_DIR, f"maskformer_run_{timestamp}")
+            print("SAVE PATH", self.save_path)
+            state_dict = torch.load(model_path, map_location=self.device)
+            self.model.load_state_dict(state_dict)
+        else:
+            print(f"Error:'{model_path}' was not found.")
 
     # def draw_semantic_segmentation(self, segmentation):
     #     # get the used color map

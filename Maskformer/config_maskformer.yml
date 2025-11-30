@@ -1,6 +1,6 @@
 train:
   batch_size: 16
-  lr: 5e-4
+  lr: .0005
   n_epochs: 10
   num_workers: 0
 optimizer:
