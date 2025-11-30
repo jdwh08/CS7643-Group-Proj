@@ -1,73 +1,74 @@
 ## Team Water is Not Wet: Flood Segmentation using Sen1Floods11 dataset
 
-### Development Environment Setup
+### PACE Setup
 
-#### 1 - Install conda
+#### 1.  SSH through terminal or your IDE
+Please refer to the Ed PACE guide for this part. 
 
-#### 2 - Create the project environment from environment.yml
+Once you're connected, **make sure you are inside ~/scratch**.
 
-From your repo folder:
-`conda env create -f environment.yml`
-This will create an environment called cs7643-flood
-
-#### 3 - Activate the environment
-
-`conda activate cs7643-flood`
-
-#### 4 - Updating the environment
-
-If you make changes to the `environment.yml` file (for example, adding new
-packages like albumentations), you need to update your local conda
-environment so that it matches the updated file.
-
-After modifying `environment.yml`, run:
-`conda env update -f environment.yml --prune`
-This installs new dependencies, removes outdated ones, and keeps everyone’s
-environment consistent.
-
-### Data Setup
-
-#### 1 - Install gcloud sdk
-
-Follow instructions:  
-https://docs.cloud.google.com/sdk/docs/install-sdk
-
-After installation:
+#### 2. Clone the repo inside scratch
 
 ```
-gcloud init
-gsutil --version     # should show gsutil version: 5.x
+git clone https://github.com/jdwh08/CS7643-Group-Proj.git
+cd CS7643-Group-Proj
 ```
 
-You may select any project during gcloud init; we only access a public bucket.
-
-#### 2 - Syncing the data in local
-
-From project root:  
-`bash scripts/sync_local.sh`
-
-This will download:
-
-- Full hand-labeled dataset
-  - HandLabeled/S1Hand/
-  - HandLabeled/LabelHand/
-- Hand-labeled splits
-  - splits/flood_handlabeled/
-- Partial weakly-labeled dataset (50 random chips)
-  - WeaklyLabeled/S1Weak/
-  - WeaklyLabeled/S1OtsuLabelWeak/
-
-All files are stored under:  
-`./data/`
-unless you override DATA_ROOT.
-
-### 3 - Sanity Check
-
-Explore the dataset with:
+#### 3. Install uv inside scratch
 
 ```
-cd notebooks
-jupyter notebook data_exploration.ipynb
+curl -fsSL https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=$HOME/scratch/.local sh
+source $HOME/scratch/.local/env
+uv --version 
 ```
 
-You can see raw tiles from S1Hand & S1Weak. Raw vs augmented tiles are also visualized.
+#### 4. Create the virtual environment
+Inside the repo root:
+```
+uv venv
+source .venv/bin/activate 
+```
+
+#### 5. Load CUDA before syncing dependencies
+
+```
+module purge
+module load cuda/12.1.1
+nvcc --version #should be 12.1.1
+```
+
+#### 6. Install project dependencies
+```
+uv sync
+```
+
+### 7. Sync the dataset
+If you just want to run the data exploration notebook and train unet:
+```
+bash scripts/sync_partial.sh
+```
+If you need to do ViT or transfer learning using Prithivi:
+```
+bash scripts/sync_full.sh #the whole thing shoud take about 10 mins
+```
+
+### Running the data exploration notebook (optional)
+#### 1. Go to [PACE OnDemand](https://ondemand-ice.pace.gatech.edu/pun/sys/dashboard) in the browser.
+
+#### 2. Activate the venv in terminal
+Go to Files/Home Directory, open terminal:
+```
+cd scratch/CS7643-Group-Proj
+source .venv/bin/activate
+```
+#### 3. Install an IPython kernel that points to the venv
+
+Run inside venv:
+```
+python -m ipykernel install --user --name cs7643-env --display-name "CS7643 Env"
+```
+#### 4. Launch Jupyter from OnDemand using ANY base environment
+Pick Anaconda 2023.03 or PyTorch 2.1.0, doesn’t matter.
+
+#### 5. Inside Jupyter → Open the notebook → choose your kernel
+Kernel → Change Kernel → CS7643 Env
