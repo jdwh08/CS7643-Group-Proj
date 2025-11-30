@@ -20,18 +20,8 @@ torch.backends.cudnn.benchmark = False
 
 maskformer = FloodMaskformer(dataset="weak")
 
-maskformer.training()
-
-
-# print("LOSS HISTORY TRAIN", maskformer.train_loss_history)
-
-# print("VAL LOSS HISTORY", maskformer.val_loss_history)
-
-# print("IOU HISTORY TRAIN", maskformer.train_iou_history)
-
-# print("VAL IOU HISTORY", maskformer.val_iou_history)
+# maskformer.training()
 
 # maskformer.save_model()
 
-# maskformer.load_weights("maskformer_run_20251130_08:46")
-# maskformer.save_model()
+maskformer.load_weights("maskformer_run_20251130_14:41")

@@ -274,10 +274,6 @@ class FloodMaskformer:
                 yaml.dump(metric_dict, file, default_flow_style=False, sort_keys=False)
 
             print(f"\nSuccessfully wrote data to {file_name}")
-
-        except ImportError:
-            print("\nERROR: The 'PyYAML' library is not installed.")
-            print("Please run: pip install PyYAML")
         except Exception as e:
             print(f"An error occurred: {e}")
 
@@ -290,8 +286,8 @@ class FloodMaskformer:
         self.model.eval()
         iterator = iter(self.val_loader)
 
-        test_img, mask = next(iterator)
-
+        batch = next(iterator)
+        test_img, mask = batch["image"], batch["mask"]
         curr_img = test_img[2]
         curr_mask = mask[2]
         out = self.model.forward(pixel_values=curr_img.unsqueeze(0).to(self.device))
@@ -348,6 +344,7 @@ class FloodMaskformer:
 
     def load_weights(self, model_dir: str):
         model_path = os.path.join(LOG_DIR, model_dir, "weights.pth")
+
         if os.path.exists(model_path):
             state_dict = torch.load(model_path, map_location=self.device)
             self.model.load_state_dict(state_dict)
