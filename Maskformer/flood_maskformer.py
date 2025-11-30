@@ -42,6 +42,9 @@ from src.data.loaders import make_s1hand_loaders, make_s1weak_loader
 from src.data.io import clean_hand_mask
 from config import Config
 
+S1_MEAN = [0.6851, 0.5235]
+S1_STD = [0.0820, 0.1102]
+
 
 class FloodMaskformer:
     """
@@ -215,6 +218,9 @@ class FloodMaskformer:
     #         iou = torch.tensor(0).float()
 
     #     return iou
+    @staticmethod
+    def denorm(band, mean, std):
+        return np.clip(band * std + mean, 0.0, 1.0)
 
     def save_model(
         self,
@@ -284,31 +290,34 @@ class FloodMaskformer:
         Uses first image/mask from validation set.
         """
         self.model.eval()
-        iterator = iter(self.test_loader)
+        iterator = iter(self.val_loader)
 
         test_img, mask = next(iterator)
 
-        out = self.model.forward(pixel_values=test_img[3].unsqueeze(0).to(self.device))
+        curr_img = test_img[2]
+        curr_mask = mask[2]
+        out = self.model.forward(pixel_values=curr_img.unsqueeze(0).to(self.device))
 
         # Post Process
 
         result = self.processor.post_process_semantic_segmentation(out)
-        vv = test_img[3][0]
-        vh = test_img[3][1]
+        vv = curr_img[0]
+        vh = curr_img[1]
+        vv_denorm = FloodMaskformer.denorm(vv, S1_MEAN[0], S1_STD[0])
+        vh_denorm = FloodMaskformer.denorm(vh, S1_MEAN[1], S1_STD[1])
         seg_mask = result[0]
-        print("MASK SHAPE AND UNIQUE VALUES", mask[3].shape, np.unique(mask[3].numpy()))
-        mask = clean_hand_mask(mask[3].numpy())
+
+        mask = clean_hand_mask(curr_mask.numpy())
         mask_vis = mask.astype(float)
         mask_vis[mask_vis == 255] = np.nan
-        print(np.unique(mask_vis))
         pred_mask = clean_hand_mask(seg_mask.numpy())
         pred_mask_vis = pred_mask.astype(float)
         pred_mask_vis[pred_mask_vis == 255] = np.nan
         fig, ax = plt.subplots(1, 4, figsize=(18, 5))
-        ax[0].imshow(vv, cmap="gray")
+        ax[0].imshow(vv_denorm, cmap="gray")
         ax[0].set_title("VV")
 
-        ax[1].imshow(vh, cmap="gray")
+        ax[1].imshow(vh_denorm, cmap="gray")
         ax[1].set_title("VH")
 
         ax[2].imshow(mask_vis, cmap="Reds", vmin=0, vmax=1)
