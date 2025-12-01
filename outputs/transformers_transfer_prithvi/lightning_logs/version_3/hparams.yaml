@@ -3,7 +3,7 @@ tiled_inference_on_testing: false
 tiled_inference_on_validation: false
 path_to_record_metrics: null
 model_args:
-  backbone: prithvi_eo_v2_300
+  backbone: prithvi_eo_v2_300_tl
   backbone_pretrained: false
   backbone_bands:
   - BLUE
@@ -14,7 +14,7 @@ model_args:
   - SWIR_2
   decoder: UperNetDecoder
   decoder_channels: 256
-  decoder_scale_modules: true
+  decoder_scale_modules: false
   num_classes: 2
   rescale: true
   head_dropout: 0.1
@@ -26,21 +26,20 @@ model_args:
     - 17
     - 23
   - name: ReshapeTokensToImage
-  - name: LearnedInterpolateToPyramidal
 model_factory: EncoderDecoderFactory
 model: null
 loss: ce
 aux_heads: null
 aux_loss: null
 class_weights: null
-ignore_index: -1
-lr: 5.0e-05
+ignore_index: 255
+lr: 1.0e-06
 optimizer: AdamW
 optimizer_hparams:
-  weight_decay: 0.005
+  weight_decay: 0
 scheduler: CosineAnnealingLR
 scheduler_hparams:
-  T_max: 20
+  T_max: 100
   eta_min: 0
 freeze_backbone: false
 freeze_decoder: false
