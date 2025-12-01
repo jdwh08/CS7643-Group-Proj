@@ -301,10 +301,10 @@ class FloodMaskformer:
         vh_denorm = FloodMaskformer.denorm(vh, S1_MEAN[1], S1_STD[1])
         seg_mask = result[0]
 
-        mask = clean_hand_mask(curr_mask.numpy())
+        mask = clean_hand_mask(curr_mask.cpu().detach().numpy())
         mask_vis = mask.astype(float)
         mask_vis[mask_vis == 255] = np.nan
-        pred_mask = clean_hand_mask(seg_mask.numpy())
+        pred_mask = clean_hand_mask(seg_mask.cpu().detach().numpy())
         pred_mask_vis = pred_mask.astype(float)
         pred_mask_vis[pred_mask_vis == 255] = np.nan
         fig, ax = plt.subplots(1, 4, figsize=(18, 5))
