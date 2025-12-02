@@ -87,7 +87,13 @@ class FloodMaskformer:
         self.optimizer = torch.optim.Adam(
             self.model.parameters(), lr=self.lr, weight_decay=self.weight_decay
         )
-
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+            self.optimizer,
+            len(self.train_loader) * 10,
+            T_mult=2,
+            eta_min=0,
+            last_epoch=-1,
+        )
         self.processor = MaskFormerImageProcessor(
             do_normalize=False,
             do_reduce_labels=False,
@@ -153,6 +159,7 @@ class FloodMaskformer:
             curr_epoch_loss.append(loss.item())
             loss.backward()
             self.optimizer.step()
+            self.scheduler.step()
 
         epoch_iou = self.train_metrics.compute(
             num_labels=2,
