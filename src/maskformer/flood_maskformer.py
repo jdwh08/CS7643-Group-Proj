@@ -84,16 +84,7 @@ class FloodMaskformer:
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
-        self.optimizer = torch.optim.Adam(
-            self.model.parameters(), lr=self.lr, weight_decay=self.weight_decay
-        )
-        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            self.optimizer,
-            len(self.train_loader) * 10,
-            T_mult=2,
-            eta_min=0,
-            last_epoch=-1,
-        )
+
         self.processor = MaskFormerImageProcessor(
             do_normalize=False,
             do_reduce_labels=False,
@@ -112,6 +103,17 @@ class FloodMaskformer:
             make_s1weak_loader(DATA_ROOT, self.batch_size, self.num_workers)
             if dataset == "weak"
             else self.hand_train_loader
+        )
+
+        self.optimizer = torch.optim.Adam(
+            self.model.parameters(), lr=self.lr, weight_decay=self.weight_decay
+        )
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+            self.optimizer,
+            len(self.train_loader) * 10,
+            T_mult=2,
+            eta_min=0,
+            last_epoch=-1,
         )
         self.train_metrics = evaluate.load("mean_iou")
         self.val_metrics = evaluate.load("mean_iou")
