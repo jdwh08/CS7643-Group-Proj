@@ -85,6 +85,11 @@ class FloodMaskformer:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
 
+        trainable_params = sum(
+            p.numel() for p in self.model.parameters() if p.requires_grad
+        )
+
+        print(f"Total trainable parameters: {trainable_params}")
         self.processor = MaskFormerImageProcessor(
             do_normalize=False,
             do_reduce_labels=False,
@@ -104,7 +109,7 @@ class FloodMaskformer:
             if dataset == "weak"
             else self.hand_train_loader
         )
-
+        print("LOADER SIZES", len(self.train_loader), len(self.val_loader))
         self.optimizer = torch.optim.Adam(
             self.model.parameters(), lr=self.lr, weight_decay=self.weight_decay
         )
@@ -337,19 +342,32 @@ class FloodMaskformer:
         Transformer mask_labels param requires shape (B,N,H,W), where N is the number of labels (binary masks).
         This function does the (B,H,W) to (B,N,H,W) transform and also generates class_labels.
         """
-        mask_list = [mask for mask in masks]
-        binary_mask_list = []  # (b, 2, h, w)
+        mask_list = [mask for mask in masks]  # size b, each element is hxw
+        binary_mask_list = (
+            []
+        )  # (b, x, h, w) - x since an image may be all of one class or no class (255) and in that case we shouldn't pass both masks
+        class_labels_list = []
         for mask in mask_list:
             binary_masks = []
-
+            curr_label = []
             for id in range(0, 2):
                 binary_mask = (mask == id).float()
-                binary_masks.append(binary_mask)
-            binary_tensor = torch.stack(binary_masks, dim=0)
-            binary_mask_list.append(binary_tensor)
+                if binary_mask.sum() > 0:
+                    binary_masks.append(binary_mask)
+                    curr_label.append(id)
 
-        class_labels = [torch.tensor([0, 1]) for _ in range(self.batch_size)]  # (b,2)
-        return binary_mask_list, class_labels
+            if (
+                len(binary_masks) <= 0
+            ):  # it's possible that the entire image could be noise (255)
+                binary_tensor = torch.zeros((0, mask.shape[0], mask.shape[1]))
+                curr_label_tensor = torch.tensor([], dtype=torch.long)
+            else:
+                binary_tensor = torch.stack(binary_masks, dim=0)
+                curr_label_tensor = torch.tensor(curr_label, dtype=torch.long)
+            binary_mask_list.append(binary_tensor)
+            class_labels_list.append(curr_label_tensor)
+
+        return binary_mask_list, class_labels_list
 
     def load_weights(self, model_dir: str):
         model_path = os.path.join(LOG_DIR, model_dir, "weights.pth")
