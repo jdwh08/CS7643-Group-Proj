@@ -8,4 +8,6 @@
 #SBATCH -J maskformer-weak    # jobs name
 
 # And then some code to run, like
+source ../../.venv/bin/activate
 python3 runner.py
+exit 0
