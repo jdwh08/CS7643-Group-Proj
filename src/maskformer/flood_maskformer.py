@@ -94,6 +94,7 @@ class FloodMaskformer:
             do_normalize=False,
             do_reduce_labels=False,
             do_resize=False,
+            do_convert_rgb=False,
             do_rescale=False,
             ignore_index=255,
             num_labels=2,
@@ -143,7 +144,7 @@ class FloodMaskformer:
             img = batch["image"]
             mask = batch["mask"]
             self.optimizer.zero_grad()
-            mask_labels, class_labels = self.reshape_mask(mask)
+            mask_labels, class_labels = self.reshape_mask(img, mask)
 
             out = self.model.forward(
                 pixel_values=img.to(self.device),  # (2,3,256, 256)
@@ -184,7 +185,7 @@ class FloodMaskformer:
         for i, batch in enumerate(progress_bar):
             img = batch["image"]
             mask = batch["mask"]
-            mask_labels, class_labels = self.reshape_mask(mask)
+            mask_labels, class_labels = self.reshape_mask(img, mask)
 
             out = self.model.forward(
                 pixel_values=img.to(self.device),  # (2,3,256, 256)
@@ -212,6 +213,33 @@ class FloodMaskformer:
         )
         self.val_loss_history.append(sum(curr_epoch_loss) / len(curr_epoch_loss))
         self.val_iou_history.append(epoch_iou["mean_iou"])
+
+    # @torch.no_grad()
+    # def inference(self):
+    #     self.model.eval()
+    #     batch_loss = []
+    #     progress_bar = tqdm(self.test_loader)
+    #     for i, batch in enumerate(progress_bar):
+    #         img = batch["image"]
+    #         mask = batch["mask"]
+    #         mask_labels, class_labels = self.reshape_mask(img, mask)
+
+    #         out = self.model.forward(
+    #             pixel_values=img.to(self.device),  # (2,3,256, 256)
+    #             mask_labels=[
+    #                 labels.to(self.device) for labels in mask_labels
+    #             ],  # (2, 2, 256, 256)
+    #             class_labels=[labels.to(self.device) for labels in class_labels],  # (2)
+    #         )
+
+    #         loss = out.loss
+    #         rescale_sizes = [(256, 256)] * img.shape[0]
+    #         seg_mask = self.processor.post_process_semantic_segmentation(
+    #             out, target_sizes=rescale_sizes
+    #         )
+
+    #         # seg_mask is a list, recombine into a batched tensor
+    #         seg_mask = torch.stack(seg_mask, dim=0)
 
     # @staticmethod
     # def get_iou(output, target):
@@ -337,37 +365,31 @@ class FloodMaskformer:
         plt.savefig(plot_path)
         plt.close()
 
-    def reshape_mask(self, masks):
+    def reshape_mask(self, imgs, masks):
         """
+
+
         Transformer mask_labels param requires shape (B,N,H,W), where N is the number of labels (binary masks).
+
+
         This function does the (B,H,W) to (B,N,H,W) transform and also generates class_labels.
+
+
         """
-        mask_list = [mask for mask in masks]  # size b, each element is hxw
-        binary_mask_list = (
-            []
-        )  # (b, x, h, w) - x since an image may be all of one class or no class (255) and in that case we shouldn't pass both masks
-        class_labels_list = []
-        for mask in mask_list:
-            binary_masks = []
-            curr_label = []
-            for id in range(0, 2):
-                binary_mask = (mask == id).float()
-                if binary_mask.sum() > 0:
-                    binary_masks.append(binary_mask)
-                    curr_label.append(id)
 
-            if (
-                len(binary_masks) <= 0
-            ):  # it's possible that the entire image could be noise (255)
-                binary_tensor = torch.zeros((0, mask.shape[0], mask.shape[1]))
-                curr_label_tensor = torch.tensor([], dtype=torch.long)
-            else:
-                binary_tensor = torch.stack(binary_masks, dim=0)
-                curr_label_tensor = torch.tensor(curr_label, dtype=torch.long)
-            binary_mask_list.append(binary_tensor)
-            class_labels_list.append(curr_label_tensor)
+        img_list = [img for img in imgs]
 
-        return binary_mask_list, class_labels_list
+        # print("SHAPE", img_list[0].shape)
+
+        mask_list = [mask for mask in masks]
+        processed = self.processor(
+            images=img_list,
+            segmentation_maps=mask_list,
+            return_tensors="pt",
+            input_data_format="channels_first",
+        )
+
+        return processed["mask_labels"], processed["class_labels"]
 
     def load_weights(self, model_dir: str):
         model_path = os.path.join(LOG_DIR, model_dir, "weights.pth")
