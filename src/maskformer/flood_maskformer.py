@@ -84,14 +84,17 @@ class FloodMaskformer:
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
-        self.optimizer = torch.optim.Adam(
-            self.model.parameters(), lr=self.lr, weight_decay=self.weight_decay
+
+        trainable_params = sum(
+            p.numel() for p in self.model.parameters() if p.requires_grad
         )
 
+        print(f"Total trainable parameters: {trainable_params}")
         self.processor = MaskFormerImageProcessor(
             do_normalize=False,
             do_reduce_labels=False,
             do_resize=False,
+            do_convert_rgb=False,
             do_rescale=False,
             ignore_index=255,
             num_labels=2,
@@ -106,6 +109,17 @@ class FloodMaskformer:
             make_s1weak_loader(DATA_ROOT, self.batch_size, self.num_workers)
             if dataset == "weak"
             else self.hand_train_loader
+        )
+        print("LOADER SIZES", len(self.train_loader), len(self.val_loader))
+        self.optimizer = torch.optim.Adam(
+            self.model.parameters(), lr=self.lr, weight_decay=self.weight_decay
+        )
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+            self.optimizer,
+            len(self.train_loader) * 10,
+            T_mult=2,
+            eta_min=0,
+            last_epoch=-1,
         )
         self.train_metrics = evaluate.load("mean_iou")
         self.val_metrics = evaluate.load("mean_iou")
@@ -130,7 +144,7 @@ class FloodMaskformer:
             img = batch["image"]
             mask = batch["mask"]
             self.optimizer.zero_grad()
-            mask_labels, class_labels = self.reshape_mask(mask)
+            mask_labels, class_labels = self.reshape_mask(img, mask)
 
             out = self.model.forward(
                 pixel_values=img.to(self.device),  # (2,3,256, 256)
@@ -153,6 +167,7 @@ class FloodMaskformer:
             curr_epoch_loss.append(loss.item())
             loss.backward()
             self.optimizer.step()
+            self.scheduler.step()
 
         epoch_iou = self.train_metrics.compute(
             num_labels=2,
@@ -170,7 +185,7 @@ class FloodMaskformer:
         for i, batch in enumerate(progress_bar):
             img = batch["image"]
             mask = batch["mask"]
-            mask_labels, class_labels = self.reshape_mask(mask)
+            mask_labels, class_labels = self.reshape_mask(img, mask)
 
             out = self.model.forward(
                 pixel_values=img.to(self.device),  # (2,3,256, 256)
@@ -198,6 +213,42 @@ class FloodMaskformer:
         )
         self.val_loss_history.append(sum(curr_epoch_loss) / len(curr_epoch_loss))
         self.val_iou_history.append(epoch_iou["mean_iou"])
+
+    @torch.no_grad()
+    def inference(self):
+        self.model.eval()
+        batch_loss = []
+        test_metrics = evaluate.load("mean_iou")
+        progress_bar = tqdm(self.test_loader)
+        for i, batch in enumerate(progress_bar):
+            img = batch["image"]
+            mask = batch["mask"]
+            mask_labels, class_labels = self.reshape_mask(img, mask)
+
+            out = self.model.forward(
+                pixel_values=img.to(self.device),  # (2,3,256, 256)
+                mask_labels=[
+                    labels.to(self.device) for labels in mask_labels
+                ],  # (2, 2, 256, 256)
+                class_labels=[labels.to(self.device) for labels in class_labels],  # (2)
+            )
+
+            loss = out.loss
+            rescale_sizes = [(256, 256)] * img.shape[0]
+            seg_mask = self.processor.post_process_semantic_segmentation(
+                out, target_sizes=rescale_sizes
+            )
+            batch_loss.append(loss.item())
+            # seg_mask is a list, recombine into a batched tensor
+            seg_mask = torch.stack(seg_mask, dim=0)
+            test_metrics.add_batch(predictions=seg_mask, references=mask)
+
+        epoch_iou = test_metrics.compute(
+            num_labels=2,
+            ignore_index=255,
+        )
+        print(f"Test loss: {sum(batch_loss)/len(batch_loss)}")
+        print(f"Test IoU: {epoch_iou["mean_iou"]}")
 
     # @staticmethod
     # def get_iou(output, target):
@@ -323,24 +374,31 @@ class FloodMaskformer:
         plt.savefig(plot_path)
         plt.close()
 
-    def reshape_mask(self, masks):
+    def reshape_mask(self, imgs, masks):
         """
+
+
         Transformer mask_labels param requires shape (B,N,H,W), where N is the number of labels (binary masks).
+
+
         This function does the (B,H,W) to (B,N,H,W) transform and also generates class_labels.
+
+
         """
+
+        img_list = [img for img in imgs]
+
+        # print("SHAPE", img_list[0].shape)
+
         mask_list = [mask for mask in masks]
-        binary_mask_list = []  # (b, 2, h, w)
-        for mask in mask_list:
-            binary_masks = []
+        processed = self.processor(
+            images=img_list,
+            segmentation_maps=mask_list,
+            return_tensors="pt",
+            input_data_format="channels_first",
+        )
 
-            for id in range(0, 2):
-                binary_mask = (mask == id).float()
-                binary_masks.append(binary_mask)
-            binary_tensor = torch.stack(binary_masks, dim=0)
-            binary_mask_list.append(binary_tensor)
-
-        class_labels = [torch.tensor([0, 1]) for _ in range(self.batch_size)]  # (b,2)
-        return binary_mask_list, class_labels
+        return processed["mask_labels"], processed["class_labels"]
 
     def load_weights(self, model_dir: str):
         model_path = os.path.join(LOG_DIR, model_dir, "weights.pth")
