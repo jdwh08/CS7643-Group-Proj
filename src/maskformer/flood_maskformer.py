@@ -56,6 +56,7 @@ class FloodMaskformer:
         self.maskformer_config = MaskFormerConfig(
             backbone="microsoft/resnet-50",
             use_pretrained_backbone=False,
+            use_auxiliary_loss=True,
             num_labels=2,
             id2label={i: str(i) for i in range(2)},
             label2id={str(i): i for i in range(2)},
@@ -81,7 +82,9 @@ class FloodMaskformer:
         feature_extractor.embedder.embedder.convolution = nn.Conv2d(
             2, 64, kernel_size=7, stride=2, padding=3, bias=False
         )
+        self.model = FloodMaskformer.convertBNtoGN(self.model)
 
+        # print(self.model)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
 
@@ -175,6 +178,33 @@ class FloodMaskformer:
         )
         self.train_loss_history.append(sum(curr_epoch_loss) / len(curr_epoch_loss))
         self.train_iou_history.append(epoch_iou["mean_iou"])
+
+    @staticmethod
+    def convertBNtoGN(module, num_groups=16):
+        if isinstance(module, nn.BatchNorm2d):
+            num_channels = module.num_features
+
+            # Safety Check: GroupNorm requires num_groups to divide num_channels
+            # If channels are too small (e.g. < 16), we reduce groups to 1 (LayerNorm style)
+            groups = num_groups if num_channels % num_groups == 0 else 1
+
+            new_layer = nn.GroupNorm(
+                groups, num_channels, eps=module.eps, affine=module.affine
+            )
+
+            # Copy weights (important if you switch to pretrained later)
+            if module.affine:
+                new_layer.weight.data = module.weight.data.clone().detach()
+                new_layer.bias.data = module.bias.data.clone().detach()
+
+            return new_layer
+
+        for name, child in module.named_children():
+            module.add_module(
+                name, FloodMaskformer.convertBNtoGN(child, num_groups=num_groups)
+            )
+
+        return module
 
     @torch.no_grad()
     def evaluate(self):
