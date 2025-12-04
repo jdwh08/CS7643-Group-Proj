@@ -214,32 +214,41 @@ class FloodMaskformer:
         self.val_loss_history.append(sum(curr_epoch_loss) / len(curr_epoch_loss))
         self.val_iou_history.append(epoch_iou["mean_iou"])
 
-    # @torch.no_grad()
-    # def inference(self):
-    #     self.model.eval()
-    #     batch_loss = []
-    #     progress_bar = tqdm(self.test_loader)
-    #     for i, batch in enumerate(progress_bar):
-    #         img = batch["image"]
-    #         mask = batch["mask"]
-    #         mask_labels, class_labels = self.reshape_mask(img, mask)
+    @torch.no_grad()
+    def inference(self):
+        self.model.eval()
+        batch_loss = []
+        test_metrics = evaluate.load("mean_iou")
+        progress_bar = tqdm(self.test_loader)
+        for i, batch in enumerate(progress_bar):
+            img = batch["image"]
+            mask = batch["mask"]
+            mask_labels, class_labels = self.reshape_mask(img, mask)
 
-    #         out = self.model.forward(
-    #             pixel_values=img.to(self.device),  # (2,3,256, 256)
-    #             mask_labels=[
-    #                 labels.to(self.device) for labels in mask_labels
-    #             ],  # (2, 2, 256, 256)
-    #             class_labels=[labels.to(self.device) for labels in class_labels],  # (2)
-    #         )
+            out = self.model.forward(
+                pixel_values=img.to(self.device),  # (2,3,256, 256)
+                mask_labels=[
+                    labels.to(self.device) for labels in mask_labels
+                ],  # (2, 2, 256, 256)
+                class_labels=[labels.to(self.device) for labels in class_labels],  # (2)
+            )
 
-    #         loss = out.loss
-    #         rescale_sizes = [(256, 256)] * img.shape[0]
-    #         seg_mask = self.processor.post_process_semantic_segmentation(
-    #             out, target_sizes=rescale_sizes
-    #         )
+            loss = out.loss
+            rescale_sizes = [(256, 256)] * img.shape[0]
+            seg_mask = self.processor.post_process_semantic_segmentation(
+                out, target_sizes=rescale_sizes
+            )
+            batch_loss.append(loss.item())
+            # seg_mask is a list, recombine into a batched tensor
+            seg_mask = torch.stack(seg_mask, dim=0)
+            test_metrics.add_batch(predictions=seg_mask, references=mask)
 
-    #         # seg_mask is a list, recombine into a batched tensor
-    #         seg_mask = torch.stack(seg_mask, dim=0)
+        epoch_iou = test_metrics.compute(
+            num_labels=2,
+            ignore_index=255,
+        )
+        print(f"Test loss: {sum(batch_loss)/len(batch_loss)}")
+        print(f"Test IoU: {epoch_iou["mean_iou"]}")
 
     # @staticmethod
     # def get_iou(output, target):
