@@ -56,7 +56,6 @@ class FloodMaskformer:
         self.maskformer_config = MaskFormerConfig(
             backbone="microsoft/resnet-50",
             use_pretrained_backbone=False,
-            use_auxiliary_loss=True,
             num_labels=2,
             id2label={i: str(i) for i in range(2)},
             label2id={str(i): i for i in range(2)},
