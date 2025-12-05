@@ -81,10 +81,10 @@ class FloodMaskformer:
         feature_extractor.embedder.embedder.convolution = nn.Conv2d(
             2, 64, kernel_size=7, stride=2, padding=3, bias=False
         )
-        self.model = self.convertBNtoGN(self.model)
 
         # print(self.model)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model = self.convertBNtoGN(self.model)
         self.model.to(self.device)
 
         trainable_params = sum(
@@ -206,7 +206,7 @@ class FloodMaskformer:
 
         for name, child in module.named_children():
             module.add_module(
-                name, FloodMaskformer.convertBNtoGN(child, num_groups=num_groups)
+                name, self.convertBNtoGN(child, num_groups=num_groups)
             )
 
         return module
