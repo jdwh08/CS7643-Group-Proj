@@ -2,12 +2,12 @@
 #SBATCH -N 1     
 #SBATCH -c 64
 #SBATCH --ntasks-per-node=1
-#SBATCH -t 2:00:00                  
-#SBATCH --gres=gpu:V100:1          
-#SBATCH --mem-per-gpu=32G
+#SBATCH -t 1:30:00                  
+#SBATCH --gres=gpu:1          
+
 #SBATCH -J maskformer-weak    # jobs name
 
 # And then some code to run, like
 source ../../.venv/bin/activate
-python3 runner.py
+srun python3 runner.py
 exit 0
