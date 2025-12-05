@@ -1,7 +1,7 @@
 train:
-  batch_size: 16
-  lr: .0001
-  n_epochs: 15
+  batch_size: 32
+  lr: .001
+  n_epochs: 50
   num_workers: 4
 optimizer:
   type: 'adamw'

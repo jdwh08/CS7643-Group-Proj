@@ -84,7 +84,7 @@ class FloodMaskformer:
 
         # print(self.model)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = self.convertBNtoGN(self.model)
+        # self.model = self.convertBNtoGN(self.model)
         self.model.to(self.device)
 
         trainable_params = sum(
@@ -113,12 +113,12 @@ class FloodMaskformer:
             else self.hand_train_loader
         )
         print("LOADER SIZES", len(self.train_loader), len(self.val_loader))
-        self.optimizer = torch.optim.Adam(
+        self.optimizer = torch.optim.AdamW(
             self.model.parameters(), lr=self.lr, weight_decay=self.weight_decay
         )
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
             self.optimizer,
-            len(self.train_loader) * 10,
+            5,
             T_mult=2,
             eta_min=0,
             last_epoch=-1,
@@ -205,9 +205,7 @@ class FloodMaskformer:
             return new_layer
 
         for name, child in module.named_children():
-            module.add_module(
-                name, self.convertBNtoGN(child, num_groups=num_groups)
-            )
+            module.add_module(name, self.convertBNtoGN(child, num_groups=num_groups))
 
         return module
 
