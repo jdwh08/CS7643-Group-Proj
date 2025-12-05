@@ -6,9 +6,11 @@ model_args:
   backbone: prithvi_eo_v2_300_tl
   backbone_pretrained: false
   backbone_bands:
+  - COASTAL_AEROSOL
   - BLUE
   - GREEN
   - RED
+  - RED_EDGE_2
   - NIR_NARROW
   - SWIR_1
   - SWIR_2
@@ -36,11 +38,11 @@ ignore_index: 255
 lr: 5.0e-05
 optimizer: AdamW
 optimizer_hparams:
-  weight_decay: 0.005
+  weight_decay: 0.05
 scheduler: CosineAnnealingLR
 scheduler_hparams:
-  T_max: 100
-  eta_min: 0
+  T_max: 20
+  eta_min: 1.0e-10
 freeze_backbone: false
 freeze_decoder: false
 freeze_head: false

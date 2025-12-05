@@ -44,9 +44,39 @@ OUTPUT_PATH = (
     / "transformers_transfer_prithvi"
 )
 
-TRAIN_EPOCHS = 100
+TRAIN_EPOCHS = 50
 TRAIN_BATCH_SIZE = 16
-BANDS = ["BLUE", "GREEN", "RED", "NIR_NARROW", "SWIR_1", "SWIR_2"]
+BANDS = [
+    # "COASTAL_AEROSOL",  # ocean water quality stuff, atmosphere
+    "BLUE",  # water penetration and turbidity
+    "GREEN",
+    "RED",  # vegetation (NDVI)
+    # "RED_EDGE_1",  # vegetation
+    "RED_EDGE_2",  # vegetation
+    # "RED_EDGE_3",  # vegetation
+    # "NIR_BROAD",  # water absorbtion, vegetation
+    "NIR_NARROW",  #  water absorbtion
+    # "WATER_VAPOR",  # cloud, atmosphere
+    # "CIRRUS",  # cloud, atmosphere
+    "SWIR_1",  # absorbtion, modified normalized difference water index
+    "SWIR_2",  # absorbtion, MNDWI
+]
+
+# ALL_BAND_NAMES = (
+#     "COASTAL_AEROSOL",
+#     "BLUE",
+#     "GREEN",
+#     "RED",
+#     "RED_EDGE_1",
+#     "RED_EDGE_2",
+#     "RED_EDGE_3",
+#     "NIR_BROAD",
+#     "NIR_NARROW",
+#     "WATER_VAPOR",
+#     "CIRRUS",
+#     "SWIR_1",
+#     "SWIR_2",
+# )
 
 logger = logging.getLogger(__name__)
 # Also log to console
@@ -74,7 +104,7 @@ data = Sen1Floods11S2HandDataModule(
 task = SemanticSegmentationTask(
     model_factory="EncoderDecoderFactory",
     model_args={
-        "backbone": "prithvi_eo_v2_300_tl",  # "prithvi_eo_v1_100",  # "prithvi_eo_v2_300",
+        "backbone": "prithvi_eo_v1_100", # "prithvi_eo_v2_300_tl",  # "prithvi_eo_v1_100",  # "prithvi_eo_v2_300_tl", # "prithvi_eo_v2_600"
         "backbone_pretrained": False,
         "backbone_bands": BANDS,
         "decoder": "UperNetDecoder",
@@ -82,10 +112,11 @@ task = SemanticSegmentationTask(
         "decoder_scale_modules": False,
         "num_classes": 2,
         "rescale": True,
-        "head_dropout": 0.1,
+        "head_dropout": 0.05,
         "necks": [
-            # {"name": "SelectIndices", "indices": [2, 5, 8, 11]},  # 100M model
-            {"name": "SelectIndices", "indices": [5, 11, 17, 23]},  # 300M model
+            {"name": "SelectIndices", "indices": [2, 5, 8, 11]},  # 100M model
+            # {"name": "SelectIndices", "indices": [5, 11, 17, 23]},  # 300M model
+            # {"name": "SelectIndices", "indices": [7, 15, 23, 31]},  # 600M model
             {"name": "ReshapeTokensToImage"},
             # {"name": "LearnedInterpolateToPyramidal"},
         ],
@@ -97,13 +128,13 @@ task = SemanticSegmentationTask(
     freeze_decoder=False,
     optimizer="AdamW",
     optimizer_hparams={
-        "weight_decay": 0.005,
+        "weight_decay": 0.05,
     },
-    lr=1.0e-5,
+    lr=5.0e-5,
     scheduler="CosineAnnealingLR",
     scheduler_hparams={
-        "T_max": TRAIN_EPOCHS,
-        "eta_min": 0,
+        "T_max": 20,
+        "eta_min": 1e-10,
     },
     plot_on_val=10,
 )
@@ -112,16 +143,16 @@ task = SemanticSegmentationTask(
 # CSVLogger saves all metrics to CSV for easy plotting and hyperparameter analysis
 csv_logger = CSVLogger(
     save_dir=str(OUTPUT_PATH),
-    name="lightning_logs",
+    name="logs_hand",
     version=None,  # Auto-increment version numbers
 )
 
-# TensorBoardLogger for interactive visualization
-tb_logger = TensorBoardLogger(
-    save_dir=str(OUTPUT_PATH),
-    name="lightning_logs",
-    version=None,  # Auto-increment version numbers
-)
+# # TensorBoardLogger for interactive visualization
+# tb_logger = TensorBoardLogger(
+#     save_dir=str(OUTPUT_PATH),
+#     name="logs_hand",
+#     version=None,  # Auto-increment version numbers
+# )
 
 ### Callbacks
 # ModelCheckpoint to save only the best model based on validation IoU
@@ -164,7 +195,7 @@ trainer = Trainer(
     devices="auto",
     num_nodes=1,
     precision="16-mixed",
-    logger=[csv_logger, tb_logger],  # Use both loggers
+    logger=[csv_logger],
     callbacks=[
         RichProgressBar(),
         LearningRateMonitor(logging_interval="epoch"),
