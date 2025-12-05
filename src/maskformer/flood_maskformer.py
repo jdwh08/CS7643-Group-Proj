@@ -81,7 +81,7 @@ class FloodMaskformer:
         feature_extractor.embedder.embedder.convolution = nn.Conv2d(
             2, 64, kernel_size=7, stride=2, padding=3, bias=False
         )
-        self.model = FloodMaskformer.convertBNtoGN(self.model)
+        self.model = self.convertBNtoGN(self.model)
 
         # print(self.model)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -142,6 +142,8 @@ class FloodMaskformer:
         self.model.train()
         progress_bar = tqdm(self.train_loader)
         curr_epoch_loss = []
+        epoch_loss = 0.0
+        sample_count = 0
         for i, batch in enumerate(progress_bar):
             img = batch["image"]
             mask = batch["mask"]
@@ -166,7 +168,8 @@ class FloodMaskformer:
             # seg_mask is a list, recombine into a batched tensor
             seg_mask = torch.stack(seg_mask, dim=0)
             self.train_metrics.add_batch(predictions=seg_mask, references=mask)
-            curr_epoch_loss.append(loss.item())
+            epoch_loss += loss.item() * img.shape[0]
+            sample_count += img.shape[0]
             loss.backward()
             self.optimizer.step()
             self.scheduler.step()
@@ -175,11 +178,10 @@ class FloodMaskformer:
             num_labels=2,
             ignore_index=255,
         )
-        self.train_loss_history.append(sum(curr_epoch_loss) / len(curr_epoch_loss))
+        self.train_loss_history.append(epoch_loss / sample_count)
         self.train_iou_history.append(epoch_iou["mean_iou"])
 
-    @staticmethod
-    def convertBNtoGN(module, num_groups=16):
+    def convertBNtoGN(self, module, num_groups=16):
         if isinstance(module, nn.BatchNorm2d):
             num_channels = module.num_features
 
@@ -188,7 +190,11 @@ class FloodMaskformer:
             groups = num_groups if num_channels % num_groups == 0 else 1
 
             new_layer = nn.GroupNorm(
-                groups, num_channels, eps=module.eps, affine=module.affine
+                groups,
+                num_channels,
+                eps=module.eps,
+                affine=module.affine,
+                device=self.device,
             )
 
             # Copy weights (important if you switch to pretrained later)
@@ -210,7 +216,8 @@ class FloodMaskformer:
         self.model.eval()
         curr_epoch_loss = []
         progress_bar = tqdm(self.val_loader)
-
+        epoch_loss = 0.0
+        sample_count = 0
         for i, batch in enumerate(progress_bar):
             img = batch["image"]
             mask = batch["mask"]
@@ -233,6 +240,8 @@ class FloodMaskformer:
             # seg_mask is a list, recombine into a batched tensor
             seg_mask = torch.stack(seg_mask, dim=0)
             curr_epoch_loss.append(loss.item())
+            epoch_loss += loss.item() * img.shape[0]
+            sample_count += img.shape[0]
             # NOTE: May need to convert to numpy?
             self.val_metrics.add_batch(predictions=seg_mask, references=mask)
 
@@ -240,7 +249,7 @@ class FloodMaskformer:
             num_labels=2,
             ignore_index=255,
         )
-        self.val_loss_history.append(sum(curr_epoch_loss) / len(curr_epoch_loss))
+        self.val_loss_history.append(epoch_loss / sample_count)
         self.val_iou_history.append(epoch_iou["mean_iou"])
 
     @torch.no_grad()
