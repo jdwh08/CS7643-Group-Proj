@@ -1,0 +1,26 @@
+model:
+  encoder_name: "resnet50"      
+  encoder_weights: null  # NO PRETRAINING 
+
+train:
+  batch_size: 8
+  num_workers: 4
+  lr: 5e-4
+  n_epochs: 10
+  dataset: "weak"  
+  loss: "cross_entropy"    # options: "cross_entropy", "ce_dice", "focal"
+  # For CE:
+  class_weights: [1.0, 8.0]   # land, water
+
+  # For CE + Dice:
+  dice_weight: 1.0            # CE + 1 * DiceLoss
+
+  # For Focal:
+  alpha: 0.25
+  gamma: 2.0 
+
+optimizer:
+  weight_decay: 1e-4
+
+data:
+  image_size: 256              
