@@ -72,15 +72,7 @@ class FloodSegformer:
             do_reduce_labels=False,
         )
         self.save_path = ""
-        # feature_extractor = self.model.model.pixel_level_module.encoder
 
-        # # first layer expects 3 channels, replace with 2 channels for Sen-1
-        # feature_extractor.embedder.num_channels = 2
-        # feature_extractor.embedder.embedder.convolution = nn.Conv2d(
-        #     2, 64, kernel_size=7, stride=2, padding=3, bias=False
-        # )
-
-        # print(self.model)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # self.model = self.convertBNtoGN(self.model)
         self.model.to(self.device)
@@ -129,7 +121,6 @@ class FloodSegformer:
     def train(self):
         self.model.train()
         progress_bar = tqdm(self.train_loader)
-        curr_epoch_loss = []
         epoch_loss = 0.0
         sample_count = 0
         for i, batch in enumerate(progress_bar):
@@ -152,7 +143,9 @@ class FloodSegformer:
 
             # seg_mask is a list, recombine into a batched tensor
             seg_mask = torch.stack(seg_mask, dim=0)
-            self.train_metrics.add_batch(predictions=seg_mask, references=mask)
+            preds = seg_mask.detach().cpu()
+            refs = mask.detach().cpu()
+            self.train_metrics.add_batch(predictions=preds, references=refs)
             epoch_loss += loss.item() * img.shape[0]
             sample_count += img.shape[0]
             loss.backward()
@@ -204,7 +197,6 @@ class FloodSegformer:
         for i, batch in enumerate(progress_bar):
             img = batch["image"]
             mask = batch["mask"]
-            # mask_labels, class_labels = self.reshape_mask(img, mask)
 
             out = self.model.forward(
                 pixel_values=img.to(self.device),
@@ -223,7 +215,9 @@ class FloodSegformer:
             epoch_loss += loss.item() * img.shape[0]
             sample_count += img.shape[0]
             # NOTE: May need to convert to numpy?
-            self.val_metrics.add_batch(predictions=seg_mask, references=mask)
+            preds = seg_mask.detach().cpu()
+            refs = mask.detach().cpu()
+            self.val_metrics.add_batch(predictions=preds, references=refs)
 
         epoch_iou = self.val_metrics.compute(
             num_labels=2,
@@ -241,7 +235,6 @@ class FloodSegformer:
         for i, batch in enumerate(progress_bar):
             img = batch["image"]
             mask = batch["mask"]
-            # mask_labels, class_labels = self.reshape_mask(img, mask)
 
             out = self.model.forward(
                 pixel_values=img.to(self.device),  # (2,3,256, 256)
@@ -256,7 +249,9 @@ class FloodSegformer:
             batch_loss.append(loss.item())
             # seg_mask is a list, recombine into a batched tensor
             seg_mask = torch.stack(seg_mask, dim=0)
-            test_metrics.add_batch(predictions=seg_mask, references=mask)
+            preds = seg_mask.detach().cpu()
+            refs = mask.detach().cpu()
+            test_metrics.add_batch(predictions=preds, references=refs)
 
         epoch_iou = test_metrics.compute(
             num_labels=2,
@@ -402,8 +397,6 @@ class FloodSegformer:
         """
 
         img_list = [img for img in imgs]
-
-        # print("SHAPE", img_list[0].shape)
 
         mask_list = [mask for mask in masks]
         processed = self.processor(
