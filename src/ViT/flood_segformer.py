@@ -101,7 +101,10 @@ class FloodSegformer:
         self.optimizer = torch.optim.AdamW(
             self.model.parameters(), lr=self.lr, weight_decay=self.weight_decay
         )
-
+        self.criterion = torch.nn.CrossEntropyLoss(
+            label_smoothing=0.2,
+            ignore_index=255,  # Optional: If you have a void/ignore class
+        )
         warmup_steps = int(len(self.train_loader) * 0.1)
         overall_steps = len(self.train_loader) * self.n_epochs
         self.scheduler = get_scheduler(
@@ -138,11 +141,16 @@ class FloodSegformer:
 
             out = self.model.forward(
                 pixel_values=img.to(self.device),
-                labels=mask.to(self.device),  # (2,3,256, 256)
             )
 
-            loss = out.loss
-
+            logits = out.logits
+            upsample = torch.nn.functional.interpolate(
+                logits,
+                size=(256, 256),  # target height and width (256, 256)
+                mode="bilinear",
+                align_corners=False,
+            )
+            loss = self.criterion(upsample, mask.to(self.device).long())
             rescale_sizes = [(256, 256)] * img.shape[0]
             seg_mask = self.processor.post_process_semantic_segmentation(
                 out, target_sizes=rescale_sizes
