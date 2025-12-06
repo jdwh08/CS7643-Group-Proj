@@ -70,7 +70,9 @@ class FloodMaskformer:
                 ],  # pixel decoder wants feature maps at different stages
             },
         )
-
+        self.maskformer_config.num_labels = 2
+        self.maskformer_config.id2label = {i: str(i) for i in range(2)}
+        self.maskformer_config.label2id = {str(i): i for i in range(2)}
         self.model = MaskFormerForInstanceSegmentation(self.maskformer_config)
 
         self.save_path = ""
