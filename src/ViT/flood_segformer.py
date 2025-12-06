@@ -2,6 +2,7 @@ from transformers import (
     SegformerConfig,
     SegformerImageProcessor,
     SegformerForSemanticSegmentation,
+    get_scheduler,
 )
 
 
@@ -100,12 +101,14 @@ class FloodSegformer:
         self.optimizer = torch.optim.AdamW(
             self.model.parameters(), lr=self.lr, weight_decay=self.weight_decay
         )
-        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            self.optimizer,
-            5,
-            T_mult=2,
-            eta_min=0,
-            last_epoch=-1,
+
+        warmup_steps = int(len(self.train_loader) * 0.1)
+        overall_steps = len(self.train_loader) * self.n_epochs
+        self.scheduler = get_scheduler(
+            "cosine",
+            optimizer=self.optimizer,
+            num_warmup_steps=warmup_steps,
+            num_training_steps=overall_steps,
         )
         self.train_metrics = evaluate.load("mean_iou")
         self.val_metrics = evaluate.load("mean_iou")
@@ -147,9 +150,9 @@ class FloodSegformer:
 
             # seg_mask is a list, recombine into a batched tensor
             seg_mask = torch.stack(seg_mask, dim=0)
-            preds = seg_mask.detach().cpu()
-            refs = mask.detach().cpu()
-            self.train_metrics.add_batch(predictions=preds, references=refs)
+            # preds = seg_mask.detach().cpu()
+            # refs = mask.detach().cpu()
+            self.train_metrics.add_batch(predictions=seg_mask, references=mask)
             epoch_loss += loss.item() * img.shape[0]
             sample_count += img.shape[0]
             loss.backward()
@@ -219,9 +222,9 @@ class FloodSegformer:
             epoch_loss += loss.item() * img.shape[0]
             sample_count += img.shape[0]
             # NOTE: May need to convert to numpy?
-            preds = seg_mask.detach().cpu()
-            refs = mask.detach().cpu()
-            self.val_metrics.add_batch(predictions=preds, references=refs)
+            # preds = seg_mask.detach().cpu()
+            # refs = mask.detach().cpu()
+            self.val_metrics.add_batch(predictions=seg_mask, references=mask)
 
         epoch_iou = self.val_metrics.compute(
             num_labels=2,
