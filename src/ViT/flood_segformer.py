@@ -139,7 +139,8 @@ class FloodSegformer:
             # mask_labels, class_labels = self.reshape_mask(img, mask)
 
             out = self.model.forward(
-                pixel_values=img.to(self.device), labels=mask  # (2,3,256, 256)
+                pixel_values=img.to(self.device),
+                labels=mask.to(self.device),  # (2,3,256, 256)
             )
 
             loss = out.loss
@@ -206,7 +207,8 @@ class FloodSegformer:
             # mask_labels, class_labels = self.reshape_mask(img, mask)
 
             out = self.model.forward(
-                pixel_values=img.to(self.device), labels=mask  # (2,3,256, 256)
+                pixel_values=img.to(self.device),
+                labels=mask.to(self.device),  # (2,3,256, 256)
             )
 
             loss = out.loss
@@ -243,7 +245,7 @@ class FloodSegformer:
 
             out = self.model.forward(
                 pixel_values=img.to(self.device),  # (2,3,256, 256)
-                labels=mask,  # (2, 2, 256, 256)
+                labels=mask.to(self.device),  # (2, 2, 256, 256)
             )
 
             loss = out.loss
