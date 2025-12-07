@@ -55,13 +55,19 @@ class FloodSegformer:
         self.n_epochs = self.config.train.n_epochs
         self.weight_decay = self.config.optimizer.weight_decay
 
-        self.segformer_config = SegformerConfig(
+        # self.segformer_config = SegformerConfig(
+        #     num_channels=2,
+        #     image_size=256,
+        #     drop_path_rate=0.3,
+        #     hidden_dropout_prob=0.2,
+        #     attention_probs_dropout_prob=0.2,
+        #     classifier_dropout_prob=0.3,
+        # ).from_pretrained(num_channels=2, image_size= )
+
+        self.segformer_config = SegformerConfig.from_pretrained(
+            "nvidia/mit-b3",
             num_channels=2,
             image_size=256,
-            drop_path_rate=0.5,
-            hidden_dropout_prob=0.2,
-            attention_probs_dropout_prob=0.2,
-            classifier_dropout_prob=0.5,
         )
 
         self.segformer_config.num_labels = 2
@@ -517,6 +523,7 @@ class FloodSegformer:
                     "precision": self.val_precision_history[-1],
                     "recall": self.val_recall_history[-1],
                     "smoothing": self.smoothing,
+                    "Series": self.segformer_config.name_or_path,
                 }
                 yaml.dump(metric_dict, file, default_flow_style=False, sort_keys=False)
 
