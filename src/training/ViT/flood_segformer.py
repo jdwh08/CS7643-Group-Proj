@@ -42,7 +42,7 @@ class FloodSegformer:
     Segformer module for non-pretrained Sentinel 1 inference.
     """
 
-    def __init__(self, dataset: str = "weak", scale="b0"):
+    def __init__(self, dataset: str = "weak"):
 
         self.config_path = os.path.join(BASE_DIR, "config_segformer.yml")
         with open(self.config_path, "r") as file:
@@ -55,7 +55,7 @@ class FloodSegformer:
         self.n_epochs = self.config.train.n_epochs
         self.weight_decay = self.config.optimizer.weight_decay
 
-        self.scale = scale
+        self.scale = self.config.model.scale
 
         if self.scale == "b0":
             self.segformer_config = SegformerConfig(
@@ -68,10 +68,16 @@ class FloodSegformer:
                 num_channels=2,
                 image_size=256,
             )
-        self.segformer_config.drop_path_rate = 0.3
-        self.segformer_config.hidden_dropout_prob = 0.2
-        self.segformer_config.attention_probs_dropout_prob = 0.2
-        self.segformer_config.classifier_dropout_prob = 0.3
+        self.segformer_config.drop_path_rate = self.config.model.drop_path_rate
+        self.segformer_config.hidden_dropout_prob = (
+            self.config.model.hidden_dropout_prob
+        )
+        self.segformer_config.attention_probs_dropout_prob = (
+            self.config.model.attention_probs_dropout_prob
+        )
+        self.segformer_config.classifier_dropout_prob = (
+            self.config.model.classifier_dropout_prob
+        )
         self.segformer_config.num_labels = 2
         self.segformer_config.id2label = {i: str(i) for i in range(2)}
         self.segformer_config.label2id = {str(i): i for i in range(2)}
@@ -111,7 +117,7 @@ class FloodSegformer:
         )
 
         self.criterion = torch.nn.CrossEntropyLoss(
-            label_smoothing=0.2,
+            label_smoothing=self.config.optimizer.smoothing,
             ignore_index=255,  # Optional: If you have a void/ignore class
         )
         self.smoothing = self.criterion.label_smoothing
