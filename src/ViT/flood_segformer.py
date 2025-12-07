@@ -101,10 +101,12 @@ class FloodSegformer:
         self.optimizer = torch.optim.AdamW(
             self.model.parameters(), lr=self.lr, weight_decay=self.weight_decay
         )
+
         self.criterion = torch.nn.CrossEntropyLoss(
             label_smoothing=0.2,
             ignore_index=255,  # Optional: If you have a void/ignore class
         )
+        self.smoothing = self.criterion.label_smoothing
         warmup_steps = int(len(self.train_loader) * 0.1)
         overall_steps = len(self.train_loader) * self.n_epochs
         self.scheduler = get_scheduler(
@@ -514,6 +516,7 @@ class FloodSegformer:
                     "f1": self.val_f1_history[-1],
                     "precision": self.val_precision_history[-1],
                     "recall": self.val_recall_history[-1],
+                    "smoothing": self.smoothing,
                 }
                 yaml.dump(metric_dict, file, default_flow_style=False, sort_keys=False)
 
