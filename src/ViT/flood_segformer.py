@@ -346,6 +346,10 @@ class FloodSegformer:
                     **self.config_dict,
                     "Loss": self.val_loss_history[-1],
                     "IoU": self.val_iou_history[-1].item(),
+                    "drop_path_rate": self.segformer_config.drop_path_rate,
+                    "attention_probs_dropout": self.segformer_config.attention_probs_dropout_prob,
+                    "hidden_dropout": self.segformer_config.hidden_dropout_prob,
+                    "classifier_dropout": self.segformer_config.classifier_dropout_prob,
                 }
                 yaml.dump(metric_dict, file, default_flow_style=False, sort_keys=False)
 
