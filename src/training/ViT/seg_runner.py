@@ -4,7 +4,7 @@ import torch
 from flood_segformer import FloodSegformer
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, "../.."))
+PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, "../../.."))
 LOG_DIR = os.path.join(BASE_DIR, "logs")
 DATA_ROOT = os.path.join(PROJECT_ROOT, "data")
 if PROJECT_ROOT not in sys.path:

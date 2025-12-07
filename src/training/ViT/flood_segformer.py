@@ -24,7 +24,7 @@ import sys
 # Create paths for logging info and project root
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 LOG_DIR = os.path.join(BASE_DIR, "logs")
-PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, "../.."))
+PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, "../../.."))
 DATA_ROOT = os.path.join(PROJECT_ROOT, "data")
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
