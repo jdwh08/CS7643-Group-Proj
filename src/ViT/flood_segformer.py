@@ -511,6 +511,9 @@ class FloodSegformer:
                     "attention_probs_dropout": self.segformer_config.attention_probs_dropout_prob,
                     "hidden_dropout": self.segformer_config.hidden_dropout_prob,
                     "classifier_dropout": self.segformer_config.classifier_dropout_prob,
+                    "f1": self.val_f1_history[-1],
+                    "precision": self.val_precision_history[-1],
+                    "recall": self.val_recall_history[-1],
                 }
                 yaml.dump(metric_dict, file, default_flow_style=False, sort_keys=False)
 
