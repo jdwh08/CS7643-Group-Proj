@@ -48,7 +48,7 @@ class FloodSegformer:
         with open(self.config_path, "r") as file:
             self.config_dict = yaml.safe_load(file)
             self.config = Config(config_dict=self.config_dict)
-
+        self.dataset = dataset
         self.batch_size = self.config.train.batch_size
         self.num_workers = self.config.train.num_workers
         self.lr = self.config.train.lr
@@ -122,6 +122,59 @@ class FloodSegformer:
         self.train_iou_history = []
         self.val_iou_history = []
 
+        self.val_omission_history: list[float] = []
+
+        self.val_commission_history: list[float] = []
+
+        self.val_precision_history: list[float] = []
+
+        self.val_recall_history: list[float] = []
+
+        self.val_f1_history: list[float] = []
+
+    @staticmethod
+    def _confusion(
+        preds: np.ndarray,
+        refs: np.ndarray,
+        ignore_index: int = 255,
+    ) -> tuple[int, int, int, int]:
+        """
+
+
+        Compute TP, FP, FN, TN for the WATER class (label=1), ignoring 255.
+
+
+        preds, refs: numpy arrays of shape (N, H, W) or (N,).
+
+
+        """
+
+        # flatten
+
+        preds_f = preds.reshape(-1)
+
+        refs_f = refs.reshape(-1)
+
+        # ignore 255
+
+        mask = refs_f != ignore_index
+
+        preds_f = preds_f[mask]
+
+        refs_f = refs_f[mask]
+
+        # water = 1, land = 0
+
+        tp = np.sum((preds_f == 1) & (refs_f == 1))
+
+        fp = np.sum((preds_f == 1) & (refs_f == 0))
+
+        fn = np.sum((preds_f == 0) & (refs_f == 1))
+
+        tn = np.sum((preds_f == 0) & (refs_f == 0))
+
+        return int(tp), int(fp), int(fn), int(tn)
+
     def training(self):
         for epoch in range(self.n_epochs):
             print(f"epoch {epoch}")
@@ -139,7 +192,7 @@ class FloodSegformer:
             self.optimizer.zero_grad()
             # mask_labels, class_labels = self.reshape_mask(img, mask)
 
-            out = self.model.forward(
+            out = self.model(
                 pixel_values=img.to(self.device),
             )
 
@@ -209,16 +262,34 @@ class FloodSegformer:
         progress_bar = tqdm(self.val_loader)
         epoch_loss = 0.0
         sample_count = 0
+
+        n_batches = 0
+
+        # confusion accumulators for water class
+
+        total_tp = 0
+
+        total_fp = 0
+
+        total_fn = 0
+
+        total_tn = 0
         for i, batch in enumerate(progress_bar):
             img = batch["image"]
             mask = batch["mask"]
 
-            out = self.model.forward(
+            out = self.model(
                 pixel_values=img.to(self.device),
-                labels=mask.to(self.device),  # (2,3,256, 256)
+                labels=mask.to(self.device),
             )
+            upsample = torch.nn.functional.interpolate(
+                out.logits,
+                size=(256, 256),  # target height and width (256, 256)
+                mode="bilinear",
+                align_corners=False,
+            )
+            loss = self.criterion(upsample, mask.to(self.device).long())
 
-            loss = out.loss
             rescale_sizes = [(256, 256)] * img.shape[0]
             seg_mask = self.processor.post_process_semantic_segmentation(
                 out, target_sizes=rescale_sizes
@@ -227,53 +298,130 @@ class FloodSegformer:
             # seg_mask is a list, recombine into a batched tensor
             seg_mask = torch.stack(seg_mask, dim=0)
             curr_epoch_loss.append(loss.item())
+            n_batches += 1
             epoch_loss += loss.item() * img.shape[0]
             sample_count += img.shape[0]
             # NOTE: May need to convert to numpy?
             # preds = seg_mask.detach().cpu()
             # refs = mask.detach().cpu()
             self.val_metrics.add_batch(predictions=seg_mask, references=mask)
+            preds = seg_mask.detach().cpu().numpy()
+            refs = mask.detach().cpu().numpy()
+            tp, fp, fn, tn = self._confusion(preds, refs, ignore_index=255)
 
-        epoch_iou = self.val_metrics.compute(
+            total_tp += tp
+
+            total_fp += fp
+
+            total_fn += fn
+
+            total_tn += tn
+
+        metrics = self.val_metrics.compute(
             num_labels=2,
             ignore_index=255,
         )
+        eps = 1e-6
+
+        precision = total_tp / (total_tp + total_fp + eps)
+
+        recall = total_tp / (total_tp + total_fn + eps)
+
+        f1 = 2 * precision * recall / (precision + recall + eps)
+
+        omission = total_fn / (total_tp + total_fn + eps)  # FN rate
+
+        commission = total_fp / (total_tp + total_fp + eps)  # FP rate
+
+        self.val_commission_history.append(float(commission))
+        self.val_omission_history.append(float(omission))
+        self.val_f1_history.append(float(f1))
+        self.val_recall_history.append(float(recall))
+        self.val_precision_history.append(float(precision))
         self.val_loss_history.append(epoch_loss / sample_count)
-        self.val_iou_history.append(epoch_iou["mean_iou"])
+        self.val_iou_history.append(metrics["mean_iou"])
 
     @torch.no_grad()
-    def inference(self):
+    def test(self):
         self.model.eval()
         batch_loss = []
+        n_batches = 0
+        total_tp = 0
+
+        total_fp = 0
+
+        total_fn = 0
+
+        total_tn = 0
         test_metrics = evaluate.load("mean_iou")
         progress_bar = tqdm(self.test_loader)
         for i, batch in enumerate(progress_bar):
             img = batch["image"]
             mask = batch["mask"]
 
-            out = self.model.forward(
+            out = self.model(
                 pixel_values=img.to(self.device),  # (2,3,256, 256)
                 labels=mask.to(self.device),  # (2, 2, 256, 256)
             )
-
-            loss = out.loss
+            upsample = torch.nn.functional.interpolate(
+                out.logitslogits,
+                size=(256, 256),  # target height and width (256, 256)
+                mode="bilinear",
+                align_corners=False,
+            )
+            loss = self.criterion(upsample, mask.to(self.device).long())
             rescale_sizes = [(256, 256)] * img.shape[0]
             seg_mask = self.processor.post_process_semantic_segmentation(
                 out, target_sizes=rescale_sizes
             )
             batch_loss.append(loss.item())
+            n_batches += 1
             # seg_mask is a list, recombine into a batched tensor
             seg_mask = torch.stack(seg_mask, dim=0)
-            preds = seg_mask.detach().cpu()
-            refs = mask.detach().cpu()
+            preds = seg_mask.detach().cpu().numpy()
+            refs = mask.detach().cpu().numpy()
             test_metrics.add_batch(predictions=preds, references=refs)
 
-        epoch_iou = test_metrics.compute(
+            tp, fp, fn, tn = self._confusion(preds, refs, ignore_index=255)
+            total_tp += tp
+
+            total_fp += fp
+
+            total_fn += fn
+
+            total_tn += tn
+
+        metrics = test_metrics.compute(
             num_labels=2,
             ignore_index=255,
         )
+        mean_iou = float(metrics["mean_iou"])
+
+        eps = 1e-6
+
+        precision = total_tp / (total_tp + total_fp + eps)
+
+        recall = total_tp / (total_tp + total_fn + eps)
+
+        f1 = 2 * precision * recall / (precision + recall + eps)
+
+        omission = total_fn / (total_tp + total_fn + eps)
+
+        commission = total_fp / (total_tp + total_fp + eps)
+
+        print(f"[UNet] Test mIoU: {mean_iou:.4f}")
+
+        print(f"[UNet] Test precision (water):  {precision:.4f}")
+
+        print(f"[UNet] Test recall (water):     {recall:.4f}")
+
+        print(f"[UNet] Test F1 (water):         {f1:.4f}")
+
+        print(f"[UNet] Test omission rate:      {omission:.4f}")
+
+        print(f"[UNet] Test commission rate:    {commission:.4f}")
         print(f"Test loss: {sum(batch_loss)/len(batch_loss)}")
-        print(f"Test IoU: {epoch_iou["mean_iou"]}")
+        print(f"Test IoU: {mean_iou}")
 
     # @staticmethod
     # def get_iou(output, target):
@@ -302,7 +450,9 @@ class FloodSegformer:
         curr_time = datetime.datetime.now()
         format_time = "%Y%m%d_%H:%M"
         timestamp = curr_time.strftime(format_time)
-        self.save_path = os.path.join(LOG_DIR, f"segformer_run_{timestamp}")
+        self.save_path = os.path.join(
+            LOG_DIR, f"segformer_run_{self.dataset}_{timestamp}"
+        )
         os.makedirs(self.save_path, exist_ok=True)
         state_dict_path = os.path.join(self.save_path, "weights.pth")
         torch.save(self.model.state_dict(), state_dict_path)
@@ -315,7 +465,7 @@ class FloodSegformer:
         plt.plot(self.val_loss_history, label="Validation")
         plt.xlabel("Epoch #")
         plt.ylabel("Loss")
-        plt.title("Loss Learning Curve")
+        plt.title("Segformer Loss Learning Curve")
         plt.legend()
         plt.grid()
         plt.tight_layout()
@@ -328,11 +478,22 @@ class FloodSegformer:
         plt.plot(self.val_iou_history, label="Validation")
         plt.xlabel("Epoch #")
         plt.ylabel("Mean IoU")
-        plt.title("Mean IoU Learning Curve")
+        plt.title("Segformer Mean IoU Learning Curve")
         plt.legend()
         plt.grid()
         plt.tight_layout()
         iou_path = os.path.join(self.save_path, "iou_curve.png")
+        plt.savefig(iou_path)
+        plt.close()
+
+        plt.plot(self.val_f1_history, label="Validation")
+        plt.xlabel("Epoch #")
+        plt.ylabel("F1 score")
+        plt.title("Segformer F1 Score Learning Curve")
+        plt.legend()
+        plt.grid()
+        plt.tight_layout()
+        iou_path = os.path.join(self.save_path, "f1_curve.png")
         plt.savefig(iou_path)
         plt.close()
 
