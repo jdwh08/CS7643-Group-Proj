@@ -3,16 +3,13 @@
 import os
 import sys
 import datetime
-
-import matplotlib.pyplot as plt
-import numpy as np
 import torch
 import torch.nn as nn
 from tqdm.auto import tqdm
 import evaluate
 import yaml
-from segmentation_models_pytorch.losses import FocalLoss, DiceLoss
-
+import copy
+from operator import itemgetter
 # ---------------------------
 # Project / path setup
 # ---------------------------
@@ -27,12 +24,12 @@ if PROJECT_ROOT not in sys.path:
 
 from config import Config  
 from src.data.loaders import make_s1hand_loaders, make_s1weak_loader  
-from src.data.io import clean_hand_mask  
-from src.data.s1augmentations import S1_MEAN, S1_STD  
-from src.training.unet.model import FloodUNet  
+from src.training.unet.model import FloodUNet 
+from src.training.unet.viz import save_example_plot,save_learning_curves 
+from src.training.unet.loss import build_loss
+from src.training.unet.metrics import confusion,derived_stats
 
 torch.set_float32_matmul_precision("high")
-
 
 class UNetTrainer:
     """
@@ -55,6 +52,9 @@ class UNetTrainer:
         self.weight_decay = float(self.config.optimizer.weight_decay)
         self.image_size = int(self.config.data.image_size)
         self.dataset = self.config.train.dataset
+        self.patience = getattr(self.config.train, "early_stopping_patience", 5)
+        self.best_state_dict = None
+        self.best_epoch = -1
         # ---------------------------
         # Model
         # ---------------------------
@@ -82,7 +82,7 @@ class UNetTrainer:
             print("[UNet] Training on S1Weak, validating/testing on S1Hand.")
             self.train_loader = make_s1weak_loader(
                 data_root=DATA_ROOT,
-                batch_size=self.batch_size,
+                batch_size=self.batch_size, 
                 num_workers=self.num_workers,
                 image_size=self.image_size,
                 max_samples=None,
@@ -99,7 +99,7 @@ class UNetTrainer:
         # ---------------------------
         # Optimizer / scheduler / loss
         # ---------------------------
-        self.criterion = self._build_loss()
+        self.criterion = build_loss(self.config,self.device)
 
         self.optimizer = torch.optim.AdamW(
             self.model.parameters(), lr=self.lr, weight_decay=self.weight_decay
@@ -132,8 +132,8 @@ class UNetTrainer:
     # ---------------------------
     # Training loop
     # ---------------------------
-
     def training(self) -> None:
+        epochs_no_improve = 0
         for epoch in range(self.n_epochs):
             print(f"\n[UNet] Epoch {epoch + 1}/{self.n_epochs}")
             #train
@@ -153,7 +153,7 @@ class UNetTrainer:
             self.val_commission_history.append(val_stats["commission"])
             
             print(
-                f"  train_loss={train_loss:.4f}, train_mIoU={train_iou:.4f}, "
+                f"train_loss={train_loss:.4f}, train_mIoU={train_iou:.4f}, "
                 f"val_loss={val_loss:.4f}, val_mIoU={val_iou:.4f}, "
                 f"val_precision={val_stats['precision']:.4f}, "
                 f"val_recall={val_stats['recall']:.4f}, "
@@ -162,13 +162,33 @@ class UNetTrainer:
                 f"val_commission={val_stats['commission']:.4f}"
             )
 
-            # checkpointing
+            # early stopping
             if val_iou > self.best_val_iou:
                 self.best_val_iou = val_iou
-                print(f"  [UNet] New best mIoU: {val_iou:.4f} — saving model.")
-                self.save_model()
+                self.best_epoch = epoch
+                epochs_no_improve = 0
+                self.best_state_dict = copy.deepcopy(self.model.state_dict())
+                print(f"[UNet] New best mIoU: {val_iou:.4f} (epoch {epoch + 1})")
+            else:
+                epochs_no_improve += 1
 
-        print(f"\n[UNet] Finished training. Best val mIoU: {self.best_val_iou:.4f}")
+            if self.patience is not None and epochs_no_improve >= self.patience:
+                print(
+                    f"[UNet] Early stopping at epoch {epoch + 1}: "
+                    f"no improvement for {self.patience} epochs."
+                )
+                break
+
+        if self.best_state_dict is not None:
+            print(
+                f"\n[UNet] Finished training. Best val mIoU: "
+                f"{self.best_val_iou:.4f} at epoch {self.best_epoch + 1}"
+            )
+            # restore best weights before saving & test
+            self.model.load_state_dict(self.best_state_dict)
+        else:
+            print("\n[UNet] Finished training without improvement on validation set.")
+        self.save_model()
         self.test()
 
     def _train_one_epoch(self, epoch: int) -> tuple[float, float]:
@@ -237,7 +257,7 @@ class UNetTrainer:
             refs = masks.detach().cpu().numpy()
             metric.add_batch(predictions=preds, references=refs)
 
-            tp, fp, fn, tn = self._confusion(preds, refs, ignore_index=255)
+            tp, fp, fn, tn = confusion(preds, refs, ignore_index=255)
             total_tp += tp
             total_fp += fp
             total_fn += fn
@@ -246,22 +266,7 @@ class UNetTrainer:
         metrics = metric.compute(num_labels=2, ignore_index=255)
         mean_iou = float(metrics["mean_iou"])
         avg_loss = running_loss / max(1, n_batches)
-        
-        # derived stats (water class)
-        eps = 1e-6
-        precision = total_tp / (total_tp + total_fp + eps)
-        recall = total_tp / (total_tp + total_fn + eps)
-        f1 = 2 * precision * recall / (precision + recall + eps)
-        omission = total_fn / (total_tp + total_fn + eps)      # FN rate
-        commission = total_fp / (total_tp + total_fp + eps)    # FP rate
-
-        stats = {
-            "precision": float(precision),
-            "recall": float(recall),
-            "f1": float(f1),
-            "omission": float(omission),
-            "commission": float(commission),
-        }
+        stats=derived_stats(total_tp,total_fp,total_fn,total_tn)
         return avg_loss, mean_iou, stats
 
     @torch.no_grad()
@@ -291,7 +296,7 @@ class UNetTrainer:
             refs = masks.detach().cpu().numpy()
             metric.add_batch(predictions=preds, references=refs)
             
-            tp, fp, fn, tn = self._confusion(preds, refs, ignore_index=255)
+            tp, fp, fn, tn = confusion(preds, refs, ignore_index=255)
             total_tp += tp
             total_fp += fp
             total_fn += fn
@@ -299,14 +304,11 @@ class UNetTrainer:
 
         metrics = metric.compute(num_labels=2, ignore_index=255)
         mean_iou = float(metrics["mean_iou"])
-        avg_loss = running_loss / max(1, n_batches)
-
-        eps = 1e-6
-        precision = total_tp / (total_tp + total_fp + eps)
-        recall = total_tp / (total_tp + total_fn + eps)
-        f1 = 2 * precision * recall / (precision + recall + eps)
-        omission = total_fn / (total_tp + total_fn + eps)
-        commission = total_fp / (total_tp + total_fp + eps)
+        avg_loss = running_loss / max(1, n_batches)        
+        stats=derived_stats(total_tp,total_fp,total_fn,total_tn)
+        precision, recall, f1, omission, commission = itemgetter(
+            "precision", "recall", "f1", "omission", "commission"
+        )(stats)
 
         print(f"\n[UNet] Test loss: {avg_loss:.4f}")
         print(f"[UNet] Test mIoU: {mean_iou:.4f}")
@@ -316,179 +318,64 @@ class UNetTrainer:
         print(f"[UNet] Test omission rate:      {omission:.4f}")
         print(f"[UNet] Test commission rate:    {commission:.4f}")
 
+        metrics_dict = {
+                "Test_loss": float(avg_loss),
+                "Test_mIoU": float(mean_iou),
+                "Test_precision_water": float(precision),
+                "Test_recall_water": float(recall),
+                "Test_F1_water": float(f1),
+                "Test_omission": float(omission),
+                "Test_commission": float(commission),
+            }
+        out_path = os.path.join(self.save_path, "hparams-test-metrics.yml")
+        with open(out_path, "w") as f:
+            yaml.dump(metrics_dict, f, default_flow_style=False, sort_keys=False)
+
     # ---------------------------
     # Saving / logging
     # ---------------------------
-
     def save_model(self) -> None:
         os.makedirs(LOG_DIR, exist_ok=True)
-
+        loss_name = self.config.train.loss
         now = datetime.datetime.now().strftime("%Y%m%d_%H%M")
-        run_name = f"unet_resnet50_{self.dataset}_{now}"
-
+        run_name = f"unet_resnet50_{self.dataset}_{loss_name}_{now}"
+        
         self.save_path = os.path.join(LOG_DIR, run_name)
         os.makedirs(self.save_path, exist_ok=True)
 
         weights_path = os.path.join(self.save_path, "weights.pth")
         torch.save(self.model.state_dict(), weights_path)
 
-        self._save_learning_curves()
-        self._save_metrics()
-        self._save_example_plot()
-        print(f"[UNet] Saved run to {self.save_path}")
-
-    def _save_learning_curves(self) -> None:
-        # Loss curve
-        plt.figure()
-        plt.plot(self.train_loss_history, label="Train")
-        plt.plot(self.val_loss_history, label="Val")
-        plt.xlabel("Epoch")
-        plt.ylabel("Loss")
-        plt.title("Loss vs Epoch")
-        plt.legend()
-        plt.grid(True)
-        plt.tight_layout()
-        plt.savefig(os.path.join(self.save_path, "loss_curve.png"))
-        plt.close()
-
-        # IoU curve
-        plt.figure()
-        plt.plot(self.train_iou_history, label="Train")
-        plt.plot(self.val_iou_history, label="Val")
-        plt.xlabel("Epoch")
-        plt.ylabel("Mean IoU")
-        plt.title("Mean IoU vs Epoch")
-        plt.legend()
-        plt.grid(True)
-        plt.tight_layout()
-        plt.savefig(os.path.join(self.save_path, "iou_curve.png"))
-        plt.close()
-
-    def _save_metrics(self) -> None:
-        out_path = os.path.join(self.save_path, "h_params_config.yml")
-        metric_dict = {
-            **self.config_dict,
-            "Loss": float(self.val_loss_history[-1]),
-            "IoU": float(self.val_iou_history[-1]),
-            "Val_precision": float(self.val_precision_history[-1]),
-            "Val_recall": float(self.val_recall_history[-1]),
-            "Val_F1": float(self.val_f1_history[-1]),
-            "Val_omission": float(self.val_omission_history[-1]),
-            "Val_commission": float(self.val_commission_history[-1]),
-        }
-        with open(out_path, "w") as f:
-            yaml.dump(metric_dict, f, default_flow_style=False, sort_keys=False)
-
-    def _build_loss(self):
-        config = self.config
-        loss_name = config.train.loss.lower()
-
-        if loss_name == "cross_entropy":
-            weight = torch.tensor(
-                config.train.class_weights, device=self.device
-            ).float()
-            return nn.CrossEntropyLoss(weight=weight, ignore_index=255)
-
-        elif loss_name == "ce_dice":
-            weight = torch.tensor(
-                config.train.class_weights, device=self.device
-            ).float()
-            ce = nn.CrossEntropyLoss(weight=weight, ignore_index=255)
-            dice = DiceLoss(ignore_index=255,mode="multiclass")
-            def loss_fn(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-                return ce(logits, targets) + config.train.dice_weight * dice(logits, targets)
-            return loss_fn
-
-        elif loss_name == "focal":
-            return FocalLoss(
-                mode="multiclass",
-                alpha=config.train.alpha,
-                gamma=config.train.gamma,
-                ignore_index=255
-            )
-
-        else:
-            raise ValueError(f"Unknown loss function: {loss_name}")
+        save_learning_curves(
+            self.train_loss_history,
+            self.train_iou_history,
+            self.val_loss_history,
+            self.val_iou_history,
+            self.save_path,
+        )
+        save_example_plot(
+            self.model,
+            self.device,
+            self.val_loader,
+            self.save_path
+        )
         
-    @staticmethod
-    def _denorm(band: np.ndarray, mean: float, std: float) -> np.ndarray:
-        return np.clip(band * std + mean, 0.0, 1.0)
+        out_path = os.path.join(self.save_path, 'hparams-best-val.yml')
+        metrics = {
+            **self.config_dict,            
+            "Loss": float(self.val_loss_history[self.best_epoch]),
+            "IoU": float(self.val_iou_history[self.best_epoch]),
+            "Val_precision": float(self.val_precision_history[self.best_epoch]),
+            "Val_recall": float(self.val_recall_history[self.best_epoch]),
+            "Val_F1": float(self.val_f1_history[self.best_epoch]),
+            "Val_omission": float(self.val_omission_history[self.best_epoch]),
+            "Val_commission": float(self.val_commission_history[self.best_epoch]),
+        }
 
-    @staticmethod
-    def _confusion(
-        preds: np.ndarray,
-        refs: np.ndarray,
-        ignore_index: int = 255,
-    ) -> tuple[int, int, int, int]:
-        """
-        Compute TP, FP, FN, TN for the WATER class (label=1), ignoring 255.
-        preds, refs: numpy arrays of shape (N, H, W) or (N,).
-        """
-        # flatten
-        preds_f = preds.reshape(-1)
-        refs_f = refs.reshape(-1)
-
-        # ignore 255
-        mask = refs_f != ignore_index
-        preds_f = preds_f[mask]
-        refs_f = refs_f[mask]
-
-        # water = 1, land = 0
-        tp = np.sum((preds_f == 1) & (refs_f == 1))
-        fp = np.sum((preds_f == 1) & (refs_f == 0))
-        fn = np.sum((preds_f == 0) & (refs_f == 1))
-        tn = np.sum((preds_f == 0) & (refs_f == 0))
-        return int(tp), int(fp), int(fn), int(tn)
-
-    @torch.no_grad()
-    def _save_example_plot(self) -> None:
-        """
-        Save VV/VH, hand mask, and predicted mask for a single val sample.
-        """
-        if not self.val_loader:
-            return
-
-        self.model.eval()
-        batch = next(iter(self.val_loader))
-        imgs: torch.Tensor = batch["image"].to(self.device)
-        masks: torch.Tensor = batch["mask"].to(self.device)
-
-        idx = 0
-        img = imgs[idx : idx + 1]  # (1,2,H,W)
-        mask = masks[idx]
-
-        logits = self.model(img)
-        pred = torch.argmax(logits, dim=1)[0].cpu().numpy()
-
-        vv = img[0, 0].cpu().numpy()
-        vh = img[0, 1].cpu().numpy()
-
-        vv_denorm = self._denorm(vv, S1_MEAN[0], S1_STD[0])
-        vh_denorm = self._denorm(vh, S1_MEAN[1], S1_STD[1])
-
-        mask_np = clean_hand_mask(mask.cpu().numpy())
-        mask_vis = mask_np.astype(float)
-        mask_vis[mask_vis == 255] = np.nan
-
-        pred_clean = clean_hand_mask(pred)
-        pred_vis = pred_clean.astype(float)
-        pred_vis[pred_vis == 255] = np.nan
-
-        fig, ax = plt.subplots(1, 4, figsize=(18, 5))
-        ax[0].imshow(vv_denorm, cmap="gray")
-        ax[0].set_title("VV")
-        ax[1].imshow(vh_denorm, cmap="gray")
-        ax[1].set_title("VH")
-        ax[2].imshow(mask_vis, cmap="Reds", vmin=0, vmax=1)
-        ax[2].set_title("Hand Mask (cleaned)")
-        ax[3].imshow(pred_vis, cmap="Reds", vmin=0, vmax=1)
-        ax[3].set_title("Predicted Mask (cleaned)")
-
-        for a in ax:
-            a.axis("off")
-        plt.tight_layout()
-        plt.savefig(os.path.join(self.save_path, "example_prediction.png"))
-        plt.close()
+        with open(out_path, "w") as f:
+            yaml.dump(metrics, f, default_flow_style=False, sort_keys=False)
+            
+        print(f"[UNet] Saved run to {self.save_path}")
 
 
 if __name__ == "__main__":

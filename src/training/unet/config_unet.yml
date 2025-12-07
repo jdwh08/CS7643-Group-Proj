@@ -11,6 +11,7 @@ train:
   loss: "cross_entropy"    # options: "cross_entropy", "ce_dice", "focal"
   # For CE:
   class_weights: [1.0, 8.0]   # land, water
+  early_stopping_patience: 5
 
   # For CE + Dice:
   dice_weight: 1.0            # CE + 1 * DiceLoss
