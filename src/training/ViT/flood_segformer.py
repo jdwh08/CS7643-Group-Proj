@@ -42,7 +42,7 @@ class FloodSegformer:
     Segformer module for non-pretrained Sentinel 1 inference.
     """
 
-    def __init__(self, dataset: str = "weak"):
+    def __init__(self, dataset: str = "weak", scale="b0"):
 
         self.config_path = os.path.join(BASE_DIR, "config_segformer.yml")
         with open(self.config_path, "r") as file:
@@ -55,20 +55,19 @@ class FloodSegformer:
         self.n_epochs = self.config.train.n_epochs
         self.weight_decay = self.config.optimizer.weight_decay
 
-        # self.segformer_config = SegformerConfig(
-        #     num_channels=2,
-        #     image_size=256,
-        #     drop_path_rate=0.3,
-        #     hidden_dropout_prob=0.2,
-        #     attention_probs_dropout_prob=0.2,
-        #     classifier_dropout_prob=0.3,
-        # ).from_pretrained(num_channels=2, image_size= )
+        self.scale = scale
 
-        self.segformer_config = SegformerConfig.from_pretrained(
-            "nvidia/mit-b3",
-            num_channels=2,
-            image_size=256,
-        )
+        if self.scale == "b0":
+            self.segformer_config = SegformerConfig(
+                num_channels=2,
+                image_size=256,
+            )
+        else:
+            self.segformer_config = SegformerConfig.from_pretrained(
+                "nvidia/mit-b3",
+                num_channels=2,
+                image_size=256,
+            )
         self.segformer_config.drop_path_rate = 0.3
         self.segformer_config.hidden_dropout_prob = 0.2
         self.segformer_config.attention_probs_dropout_prob = 0.2
@@ -526,7 +525,7 @@ class FloodSegformer:
                     "precision": self.val_precision_history[-1],
                     "recall": self.val_recall_history[-1],
                     "smoothing": self.smoothing,
-                    "Series": self.segformer_config.name_or_path,
+                    "Series": self.scale,
                 }
                 yaml.dump(metric_dict, file, default_flow_style=False, sort_keys=False)
 

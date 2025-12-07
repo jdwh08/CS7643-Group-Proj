@@ -18,7 +18,7 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
 
-maskformer = FloodSegformer(dataset="weak")
+maskformer = FloodSegformer(dataset="weak", scale="b0")
 
 maskformer.training()
 
