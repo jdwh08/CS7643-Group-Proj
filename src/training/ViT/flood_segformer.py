@@ -69,7 +69,10 @@ class FloodSegformer:
             num_channels=2,
             image_size=256,
         )
-
+        self.segformer_config.drop_path_rate = 0.3
+        self.segformer_config.hidden_dropout_prob = 0.2
+        self.segformer_config.attention_probs_dropout_prob = 0.2
+        self.segformer_config.classifier_dropout_prob = 0.3
         self.segformer_config.num_labels = 2
         self.segformer_config.id2label = {i: str(i) for i in range(2)}
         self.segformer_config.label2id = {str(i): i for i in range(2)}
