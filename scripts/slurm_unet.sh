@@ -7,7 +7,8 @@
 #SBATCH --mem-per-gpu=32G
 #SBATCH -J unet-s1                    # job name (shared for array)
 #SBATCH -o slurm_outs/unet_%A_%a.out  # stdout/stderr per array task
-
+#SBATCH --mail-type=ALL
+#SBATCH --mail-user=schen602@gatech.edu
 # -------------------------------
 # Select config based on array ID
 # -------------------------------
