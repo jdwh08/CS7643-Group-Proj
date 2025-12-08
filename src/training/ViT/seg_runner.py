@@ -1,10 +1,10 @@
 import os
 import sys
 import torch
-from flood_maskformer import FloodMaskformer
+from flood_segformer import FloodSegformer
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, "../.."))
+PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, "../../.."))
 LOG_DIR = os.path.join(BASE_DIR, "logs")
 DATA_ROOT = os.path.join(PROJECT_ROOT, "data")
 if PROJECT_ROOT not in sys.path:
@@ -18,10 +18,12 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
 
-maskformer = FloodMaskformer(dataset="weak")
+maskformer = FloodSegformer(dataset="weak")
 
 maskformer.training()
 
 maskformer.save_model()
 
-# maskformer.load_weights("maskformer_run_20251130_14:41")
+# maskformer.load_weights("segformer_run_weak_20251207_16:52")
+
+# maskformer.test()
