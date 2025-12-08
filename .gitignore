@@ -208,3 +208,4 @@ __marimo__/
 
 /data/
 src/training/**/logs/
+/slurm_outs/
