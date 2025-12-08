@@ -1,0 +1,27 @@
+model:
+  encoder_name: "resnet50"      
+  encoder_weights: null  # NO PRETRAINING 
+
+train:
+  batch_size: 8
+  num_workers: 4
+  lr: 1e-3
+  n_epochs: 50
+  dataset: "hand"  
+  loss: "focal"    # options: "cross_entropy", "ce_dice", "focal"
+  # For CE:
+  class_weights: [1.0, 8.0]   # land, water
+  early_stopping_patience: 5
+
+  # For CE + Dice:
+  dice_weight: 1.0            # CE + 1 * DiceLoss
+
+  # For Focal:
+  alpha: 0.5
+  gamma: 1.0 
+
+optimizer:
+  weight_decay: 1e-2
+
+data:
+  image_size: 256              
