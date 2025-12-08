@@ -555,8 +555,10 @@ class FloodSegformer:
         out = self.model.forward(pixel_values=curr_img.unsqueeze(0).to(self.device))
 
         # Post Process
-
-        result = self.processor.post_process_semantic_segmentation(out)
+        rescale_sizes = [(256, 256)]
+        result = self.processor.post_process_semantic_segmentation(
+            out, target_sizes=rescale_sizes
+        )
         vv = curr_img[0]
         vh = curr_img[1]
         vv_denorm = FloodSegformer.denorm(vv, S1_MEAN[0], S1_STD[0])
