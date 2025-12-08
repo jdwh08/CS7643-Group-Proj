@@ -72,3 +72,10 @@ Pick Anaconda 2023.03 or PyTorch 2.1.0, doesn’t matter.
 
 #### 5. Inside Jupyter → Open the notebook → choose your kernel
 Kernel → Change Kernel → CS7643 Env
+
+### Running the training scripts
+For Unet, at the project root:
+```
+sbatch --array=0-1 scripts/slurm_unet.sh
+```
+This will run full training on S1hand and S1weak with the correct config files.
