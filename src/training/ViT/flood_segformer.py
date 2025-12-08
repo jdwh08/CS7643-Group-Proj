@@ -31,6 +31,7 @@ if PROJECT_ROOT not in sys.path:
 
 from src.data.loaders import make_s1hand_loaders, make_s1weak_loader
 from src.data.io import clean_hand_mask
+from src.training.unet.viz import save_example_plot
 from config import Config
 
 S1_MEAN = [0.6851, 0.5235]
@@ -439,23 +440,6 @@ class FloodSegformer:
         print(f"Test loss: {sum(batch_loss)/len(batch_loss)}")
         print(f"Test IoU: {mean_iou}")
 
-    # @staticmethod
-    # def get_iou(output, target):
-    #     output = torch.argmax(output, dim=1).flatten()
-    #     target = target.flatten()
-
-    #     no_ignore = target.ne(255).cuda()
-    #     output = output.masked_select(no_ignore)
-    #     target = target.masked_select(no_ignore)
-    #     intersection = torch.sum(output * target)
-    #     union = torch.sum(target) + torch.sum(output) - intersection
-    #     iou = (intersection + 0.0000001) / (union + 0.0000001)
-
-    #     if iou != iou:
-    #         print("failed, replacing with 0")
-    #         iou = torch.tensor(0).float()
-
-    #     return iou
     @staticmethod
     def denorm(band, mean, std):
         return np.clip(band * std + mean, 0.0, 1.0)
@@ -474,7 +458,14 @@ class FloodSegformer:
         torch.save(self.model.state_dict(), state_dict_path)
         self.generate_learning_curves()
         self.save_metrics()
-        self.generate_plot()
+        save_example_plot(
+            self.model,
+            self.device,
+            self.val_loader,
+            save_path=self.save_path,
+            type="segformer",
+            post_processor=self.processor,
+        )
 
     def generate_learning_curves(self):
         plt.plot(self.train_loss_history, label="Training")
@@ -539,53 +530,6 @@ class FloodSegformer:
         except Exception as e:
             print(f"An error occurred: {e}")
 
-    @torch.no_grad()
-    def generate_plot(self):
-        """
-        saves image, target mask, and predicted mask for visualization.
-        Uses first image/mask from validation set.
-        """
-        self.model.eval()
-        iterator = iter(self.val_loader)
-
-        batch = next(iterator)
-        test_img, mask = batch["image"], batch["mask"]
-        curr_img = test_img[2]
-        curr_mask = mask[2]
-        out = self.model.forward(pixel_values=curr_img.unsqueeze(0).to(self.device))
-
-        # Post Process
-        rescale_sizes = [(256, 256)]
-        result = self.processor.post_process_semantic_segmentation(
-            out, target_sizes=rescale_sizes
-        )
-        vv = curr_img[0]
-        vh = curr_img[1]
-        vv_denorm = FloodSegformer.denorm(vv, S1_MEAN[0], S1_STD[0])
-        vh_denorm = FloodSegformer.denorm(vh, S1_MEAN[1], S1_STD[1])
-        seg_mask = result[0]
-
-        mask = clean_hand_mask(curr_mask.cpu().detach().numpy())
-        mask_vis = mask.astype(float)
-        mask_vis[mask_vis == 255] = np.nan
-        pred_mask = clean_hand_mask(seg_mask.cpu().detach().numpy())
-        pred_mask_vis = pred_mask.astype(float)
-        pred_mask_vis[pred_mask_vis == 255] = np.nan
-        fig, ax = plt.subplots(1, 4, figsize=(18, 5))
-        ax[0].imshow(vv_denorm, cmap="gray")
-        ax[0].set_title("VV")
-
-        ax[1].imshow(vh_denorm, cmap="gray")
-        ax[1].set_title("VH")
-
-        ax[2].imshow(mask_vis, cmap="Reds", vmin=0, vmax=1)
-        ax[2].set_title("Hand Mask (cleaned)")
-
-        ax[3].imshow(pred_mask_vis, cmap="Reds", vmin=0, vmax=1)
-        ax[3].set_title("Predicted Mask (cleaned)")
-        plot_path = os.path.join(self.save_path, "visualization.png")
-        plt.savefig(plot_path)
-        plt.close()
 
     def reshape_mask(self, imgs, masks):
         """
@@ -619,19 +563,3 @@ class FloodSegformer:
             self.model.load_state_dict(state_dict)
         else:
             print(f"Error:'{model_path}' was not found.")
-
-    # def draw_semantic_segmentation(self, segmentation):
-    #     # get the used color map
-    #     viridis = cm.get_cmap("viridis", torch.max(segmentation))
-    #     # get all the unique numbers
-    #     labels_ids = torch.unique(segmentation).tolist()
-    #     fig, ax = plt.subplots()
-    #     ax.imshow(segmentation)
-    #     handles = []
-    #     for label_id in labels_ids:
-    #         label = self.model.config.id2label[label_id]
-    #         color = viridis(label_id)
-    #         handles.append(mpatches.Patch(color=color, label=label))
-    #     ax.legend(handles=handles)
-    #     plt.show()
-    #     return fig
