@@ -380,7 +380,7 @@ class FloodSegformer:
                 labels=mask.to(self.device),  # (2, 2, 256, 256)
             )
             upsample = torch.nn.functional.interpolate(
-                out.logitslogits,
+                out.logits,
                 size=(256, 256),  # target height and width (256, 256)
                 mode="bilinear",
                 align_corners=False,

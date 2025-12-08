@@ -24,4 +24,6 @@ maskformer.training()
 
 maskformer.save_model()
 
-# maskformer.load_weights("maskformer_run_20251130_14:41")
+# maskformer.load_weights("segformer_run_weak_20251207_16:52")
+
+# maskformer.test()
