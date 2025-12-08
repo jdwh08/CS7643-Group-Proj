@@ -37,14 +37,16 @@ class UNetTrainer:
     on Sen1Floods11 S1 data.
     """
 
-    def __init__(self) -> None:
+    def __init__(self,config_path) -> None:
         # ---------------------------
         # Config
         # ---------------------------
-        config_path = os.path.join(BASE_DIR, "config_unet.yml")
+        if config_path is None:
+            config_path = os.path.join(BASE_DIR, "config_unet.yml")
         with open(config_path, "r") as f:
             self.config_dict = yaml.safe_load(f)
             self.config = Config(config_dict=self.config_dict)
+            
         self.batch_size = int(self.config.train.batch_size)
         self.num_workers = int(self.config.train.num_workers)
         self.lr = float(self.config.train.lr)

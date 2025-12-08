@@ -26,5 +26,5 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     
-    trainer = UNetTrainer()
+    trainer = UNetTrainer(config_path=args.config)
     trainer.training()
