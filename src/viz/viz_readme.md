@@ -6,7 +6,7 @@ You can call:
 
 `--image-ind` argument is optional, if not specified, it will choose a random image in the test dataloader
 
-`--run` argument is required, and is expected to be in the same format as expected by the flood_maskformer.load_weights method, i.e. "maskformer_run_timestamp", e.g. "maskformer_run_20251204_02:04"
+`--run` argument is required, and is expected to be in the same format as expected by the flood_maskformer.load_weights method, i.e. "maskformer_run_timestamp", e.g. "unet_resnet50_weak_focal_20251208_1402"
 
 `label-type` argument is optional, if not specified, it will default to hand-labeled data
 
@@ -25,7 +25,7 @@ You can call:
 
 `--image-ind` argument is optional, if not specified, it will choose a random image in the test dataloader
 
-`--run` argument is required, and is expected to be in the same format as expected by the flood_maskformer.load_weights method, i.e. "maskformer_run_timestamp", e.g. "maskformer_run_20251204_02:04"
+`--run` argument is required, and is expected to be in the same format as expected by the flood_maskformer.load_weights method, i.e. "maskformer_run_timestamp", e.g. "segformer_run_weak_20251208_13:12"
 
 `label-type` argument is optional, if not specified, it will default to hand-labeled data
 
