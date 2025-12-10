@@ -91,12 +91,14 @@ with torch.no_grad():
     encoder_hidden_states = out['hidden_states']
     pred_logits = out['logits']
     tot_images = 2 + len(encoder_hidden_states)+ pred_logits.shape[1] + 2
-    rows = int(np.ceil(tot_images/4))
-    fig, axes = plt.subplots(rows, 4, figsize = (10,8))
-    for ax in axes.flatten():
+    rows = int(np.ceil(tot_images/5))
+    fig, axes = plt.subplots(rows, 5, figsize = (10,8))
+    for ax_idx, ax in enumerate(axes.flatten()):
         ax.yaxis.set_visible(False)
         ax.xaxis.set_visible(False)
         ax.set_aspect("auto")
+        if ax_idx >= tot_images:
+            ax.remove()
         
     ## vv
     vv = denorm(image[0, 0].cpu().numpy(), S1_MEAN[0], S1_STD[0])
@@ -110,11 +112,11 @@ with torch.no_grad():
     
     # encoder hidden states
     for idx, encoder_out in enumerate(encoder_hidden_states):
-        row_index = int(np.floor(1 + idx + 1)/4)
-        col_index = int((1+idx+ 1)%4)
+        row_index = int(np.floor(1 + idx + 1)/5)
+        col_index = int((1+idx+ 1)%5)
         im = axes[row_index][col_index].imshow(encoder_out[0].mean(dim = 0).cpu().numpy())
         axes[row_index][col_index].set_title(f'Encoder Layer {idx + 1}')
-    if col_index == 3:
+    if col_index == 4:
         row_index += 1
         col_index = 0
     else:
@@ -122,17 +124,17 @@ with torch.no_grad():
         
     # logits
     im5 = axes[row_index][col_index].imshow(pred_logits[0][0].cpu().numpy())
-    axes[row_index][col_index].set_title('Mask Logits Class 0')
-    if col_index == 3:
+    axes[row_index][col_index].set_title('Logits Class 0')
+    if col_index == 4:
         row_index += 1
         col_index = 0
     else:
         col_index += 1
     im6 = axes[row_index][col_index].imshow(pred_logits[0][1].cpu().numpy())
-    axes[row_index][col_index].set_title('Mask Logits Class 1')
+    axes[row_index][col_index].set_title('Logits Class 1')
     
     # true mask
-    if col_index == 3:
+    if col_index == 4:
         row_index += 1
         col_index = 0
     else:
@@ -142,7 +144,7 @@ with torch.no_grad():
     mask_vis[mask_vis == 255] = np.nan
     im7 = axes[row_index][col_index].imshow(mask_vis, cmap = 'Reds')
     axes[row_index][col_index].set_title('True Mask')
-    if col_index == 3:
+    if col_index == 4:
         row_index += 1
         col_index = 0
     else:
@@ -152,4 +154,6 @@ with torch.no_grad():
     cleaned_pred = clean_hand_mask(torch.argmax(pred_logits, dim = 1)[0].cpu().numpy())
     im8 = axes[row_index][col_index].imshow(cleaned_pred, cmap = 'Reds')
     axes[row_index][col_index].set_title('Predicted Mask')
+    fig.tight_layout()
+    plt.subplots_adjust(hspace=0.1,wspace=0.1)
     plt.savefig(f'segformer_viz_image{image_index}_{label_type}')
