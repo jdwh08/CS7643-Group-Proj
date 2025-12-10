@@ -54,8 +54,8 @@ ALL_BAND_NAMES = (
 
 RGB_BANDS = ("RED", "GREEN", "BLUE")
 
+# Minimum number of columns required in CSV split files
 MIN_CSV_COLUMNS = 2
-NUM_CLASSES = 2
 
 #################################################
 # CODE
@@ -79,11 +79,12 @@ class S2WeakDataset(Dataset[dict[str, torch.Tensor]]):
     def __init__(
         self,
         data_root: str | None = None,
-        max_samples: int | None = None,  # limit for local dev
+        max_samples: int | None = None,
         transform: A.Compose | None = None,
         constant_scale: float = 0.0001,
         bands: Sequence[str] = ALL_BAND_NAMES,
         no_data_replace: float | None = 0.0,
+        no_label_replace: int | None = -1,
         use_metadata: bool = False,
     ) -> None:
         """Initialize the dataset.
@@ -99,6 +100,8 @@ class S2WeakDataset(Dataset[dict[str, torch.Tensor]]):
                    Defaults to all bands.
             no_data_replace: Replace NaN values in input images with this value.
                             If None, does no replacement. Defaults to 0.0.
+            no_label_replace: Replace NaN values in label with this value.
+                             If None, does no replacement. Defaults to -1.
             use_metadata: Whether to return metadata info (time and location).
                          Requires Sen1Floods11_Metadata.geojson file.
         """
@@ -112,6 +115,7 @@ class S2WeakDataset(Dataset[dict[str, torch.Tensor]]):
         self.transform = transform
         self.constant_scale = constant_scale
         self.no_data_replace = no_data_replace
+        self.no_label_replace = no_label_replace
         self.use_metadata = use_metadata
 
         # Validate and set up bands
@@ -236,10 +240,17 @@ class S2WeakDataset(Dataset[dict[str, torch.Tensor]]):
         img = img[self.band_indices, ...]  # (num_selected_bands, H, W)
 
         # Apply normalization: no_data replacement
-        img = normalize_s2(img, no_data_replace=self.no_data_replace)
+        img = normalize_s2(
+            img,
+            no_data_replace=self.no_data_replace,
+        )
 
-        mask = clean_weak_mask(load_tiff(str(mask_path))[0])
-        # Clamp any invalid values: keep 255 (ignore), 0, 1 as-is; clamp others to [0, 1]
+        # Load and clean mask
+        mask = load_tiff(str(mask_path))[0]  # (H, W)
+        if self.no_label_replace is not None:
+            mask = np.nan_to_num(mask, nan=self.no_label_replace)
+        mask = clean_weak_mask(mask)
+        # Clamp any invalid values: keep IGNORE_INDEX (255), 0, 1 as-is; clamp others to [0, 1]
         valid_mask = (mask == IGNORE_INDEX) | (mask == 0) | (mask == 1)
         mask = np.where(valid_mask, mask, np.clip(mask, 0, 1))
 
@@ -252,8 +263,8 @@ class S2WeakDataset(Dataset[dict[str, torch.Tensor]]):
 
         if self.transform is None:
             # Return raw normalized S2 + cleaned mask
-            # convert to tensors manually so loader works consistently
-            img_t = torch.from_numpy(img * self.constant_scale).float()  # (C, H, W)
+            # Convert to tensors manually so loader works consistently
+            img_t = torch.from_numpy(img).float()  # (C, H, W)
             mask_t = torch.from_numpy(mask).long()  # (H, W)
 
             result = {"image": img_t, "mask": mask_t}
@@ -269,14 +280,14 @@ class S2WeakDataset(Dataset[dict[str, torch.Tensor]]):
                 result["temporal_coords"] = temporal_coords.float()
             return result
 
-        # albumentations expects HWC image
+        # Albumentations expects HWC image
         img_hwc = np.transpose(img, (1, 2, 0))  # (H, W, C)
 
         augmented = self.transform(image=img_hwc, mask=mask)
         img_t = augmented["image"]  # (C, H, W) float
         mask_t = augmented["mask"].long()  # (H, W) long
 
-        result = {"image": img_t, "mask": mask_t}
+        result = {"image": img_t * self.constant_scale, "mask": mask_t}
         if self.use_metadata:
             # Type narrowing: if use_metadata is True, coords are not None
             if location_coords is None or temporal_coords is None:
@@ -287,10 +298,14 @@ class S2WeakDataset(Dataset[dict[str, torch.Tensor]]):
                 raise ValueError(msg)
             result["location_coords"] = location_coords.float()
             result["temporal_coords"] = temporal_coords.float()
+
+        # Image shape: (num_selected_bands, 256, 256)
+        # Mask shape: (256, 256)
         return result
 
+    @classmethod
     def clip_image(
-        self, image: np.ndarray[np.float32, Any]
+        cls, image: np.ndarray[np.float32, Any]
     ) -> np.ndarray[np.float32, Any]:
         """Clip image values to [0, 1].
 
@@ -304,8 +319,9 @@ class S2WeakDataset(Dataset[dict[str, torch.Tensor]]):
         image = np.clip(image, 0, 1)
         return image
 
+    @classmethod
     def plot(
-        self, sample: dict[str, torch.Tensor], suptitle: str | None = None
+        cls, sample: dict[str, torch.Tensor], suptitle: str | None = None
     ) -> Figure:
         """Plot a sample from the dataset. Code adapted from TerraTorch.
 
@@ -318,16 +334,16 @@ class S2WeakDataset(Dataset[dict[str, torch.Tensor]]):
         """
         num_images = 4
 
-        rgb_indices = [self.bands.index(band) for band in RGB_BANDS]
+        rgb_indices = [ALL_BAND_NAMES.index(band) for band in RGB_BANDS]
         if len(rgb_indices) != 3:  # noqa: PLR2004
             msg = "Dataset missing some of the RGB bands"
             raise ValueError(msg)
 
         # RGB -> channels-last
-        image = sample["image"][rgb_indices, ...].permute(1, 2, 0).numpy()
-        image = self.clip_image(image)
+        image = sample["image"][rgb_indices, ...].permute(1, 2, 0).cpu().numpy()
+        image = cls.clip_image(image)
 
-        mask = sample["mask"].numpy().squeeze()
+        mask = sample["mask"].cpu().numpy().squeeze()
 
         if "prediction" in sample:
             prediction = sample["prediction"]
@@ -353,8 +369,14 @@ class S2WeakDataset(Dataset[dict[str, torch.Tensor]]):
         ax[3].imshow(image)
         ax[3].imshow(mask, cmap="jet", alpha=0.3, norm=norm)
 
-        if "prediction" in sample:
+        if prediction is not None:
             ax[4].title.set_text("Predicted Mask")
+            prediction = prediction.cpu()
+            if len(prediction.shape) == 3:
+                # We only want the water probability (1)
+                prediction = prediction.argmax(dim=0)
+                # prediction = prediction[1, :, :]
+            prediction = prediction.numpy()
             ax[4].imshow(prediction, cmap="jet", norm=norm)
 
         cmap = plt.get_cmap("jet")
