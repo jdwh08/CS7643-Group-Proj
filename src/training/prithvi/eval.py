@@ -555,6 +555,7 @@ def get_val_data(bands: list[str]) -> DataLoader[dict[str, Tensor]]:
     val_data.setup("validate")
     return val_data.val_dataloader()
 
+
 def get_test_data(bands: list[str]) -> DataLoader[dict[str, Tensor]]:
     """Returns a DataLoader for the validation set."""
     val_data = Sen1Floods11S2WeakDataModule(
@@ -569,10 +570,12 @@ def get_test_data(bands: list[str]) -> DataLoader[dict[str, Tensor]]:
     val_data.setup("test")
     return val_data.test_dataloader()
 
+
 def plot_masks(
     val_data: DataLoader[dict[str, Tensor]],
     model_path: Path,
     model: nn.Module,
+    bands: list[str],
     num_samples: int = 3,
     min_water_frac: float = 0.40,
 ) -> None:
@@ -613,7 +616,7 @@ def plot_masks(
                     continue
                 del mask_np, water_frac
 
-                fig = S2HandDataset.plot(data)
+                fig = S2HandDataset.plot(data, bands=bands)
                 fig.savefig(
                     output_path / f"val_data_{i * dataloader_batch_size + j}.png"
                 )
@@ -638,7 +641,7 @@ def test_model(model_path: Path) -> None:
     log_data = get_log_data(model_path)
     test_metrics_standardized(test_data, model, model_path)
     plot_log_data(log_data, model_path, epoch)
-    plot_masks(val_data, model_path, model)
+    plot_masks(val_data, model_path, model, params["backbone_bands"][0])
 
 
 def test_all_models() -> None:
@@ -741,7 +744,3 @@ def test_metrics_standardized(
     out_path = model_path / "test-metrics.yml"
     with out_path.open("w") as f:
         yaml.safe_dump(metrics_dict, f, default_flow_style=False, sort_keys=False)
-
-
-# if __name__ == "__main__":
-    # test_model(OUTPUT_PATH / "logs_hand" / "version_29")

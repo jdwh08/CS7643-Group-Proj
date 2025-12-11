@@ -321,7 +321,10 @@ class S2WeakDataset(Dataset[dict[str, torch.Tensor]]):
 
     @classmethod
     def plot(
-        cls, sample: dict[str, torch.Tensor], suptitle: str | None = None
+        cls,
+        sample: dict[str, torch.Tensor],
+        suptitle: str | None = None,
+        bands: Sequence[str] = ALL_BAND_NAMES,
     ) -> Figure:
         """Plot a sample from the dataset. Code adapted from TerraTorch.
 
@@ -334,7 +337,7 @@ class S2WeakDataset(Dataset[dict[str, torch.Tensor]]):
         """
         num_images = 4
 
-        rgb_indices = [ALL_BAND_NAMES.index(band) for band in RGB_BANDS]
+        rgb_indices = [bands.index(band) for band in RGB_BANDS]
         if len(rgb_indices) != 3:  # noqa: PLR2004
             msg = "Dataset missing some of the RGB bands"
             raise ValueError(msg)
