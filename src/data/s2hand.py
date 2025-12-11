@@ -316,7 +316,7 @@ class S2HandDataset(Dataset[dict[str, torch.Tensor]]):
             img_t = torch.from_numpy(img).float()  # (C, H, W)
             mask_t = torch.from_numpy(mask).long()  # (H, W)
 
-            result = {"image": img_t, "mask": mask_t}
+            result = {"image": img_t * self.constant_scale, "mask": mask_t}
             if self.use_metadata:
                 # Type narrowing: if use_metadata is True, coords are not None
                 if location_coords is None or temporal_coords is None:
@@ -388,6 +388,10 @@ class S2HandDataset(Dataset[dict[str, torch.Tensor]]):
             msg = "Dataset missing some of the RGB bands"
             raise ValueError(msg)
 
+        if max(rgb_indices) > sample["image"].shape[0]:
+            msg = "Dataset missing some of the RGB bands"
+            raise ValueError(msg)
+
         # RGB -> channels-last
         image = sample["image"][rgb_indices, ...].permute(1, 2, 0).cpu().numpy()
         image = cls.clip_image(image)
@@ -425,7 +429,7 @@ class S2HandDataset(Dataset[dict[str, torch.Tensor]]):
                 # We only want the water probability (1)
                 prediction = prediction.argmax(dim=0)
                 # prediction = prediction[1, :, :]
-            prediction.numpy()
+            prediction = prediction.numpy()
             ax[4].imshow(prediction, cmap="jet", norm=norm)
 
         cmap = plt.get_cmap("jet")

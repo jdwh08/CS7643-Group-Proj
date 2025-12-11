@@ -267,7 +267,7 @@ class S2WeakDataset(Dataset[dict[str, torch.Tensor]]):
             img_t = torch.from_numpy(img).float()  # (C, H, W)
             mask_t = torch.from_numpy(mask).long()  # (H, W)
 
-            result = {"image": img_t, "mask": mask_t}
+            result = {"image": img_t * self.constant_scale, "mask": mask_t}
             if self.use_metadata:
                 # Type narrowing: if use_metadata is True, coords are not None
                 if location_coords is None or temporal_coords is None:

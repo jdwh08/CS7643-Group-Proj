@@ -288,6 +288,7 @@ class Sen1Floods11S2WeakDataModule(NonGeoDataModule):
                 max_samples=self.max_samples,
                 no_data_replace=self.no_data_replace,
                 use_metadata=self.use_metadata,
+                split="bolivia",
             )
 
     def _dataloader_factory(self, split: str) -> DataLoader[dict[str, Tensor]]:
