@@ -19,7 +19,7 @@ cd "$HOME/scratch/CS7643-Group-Proj" || exit 1
 source .venv/bin/activate || exit 1
 
 # Determine config file based on execution mode
-SCRIPT_DIR="$HOME/scratch/CS7643-Group-Proj/src/training/transformers_transfer_prithvi"
+SCRIPT_DIR="$HOME/scratch/CS7643-Group-Proj/src/training/prithvi"
 
 # Check if running as part of a job array
 if [ -n "$SLURM_ARRAY_TASK_ID" ]; then
@@ -64,5 +64,5 @@ else
 fi
 
 # Run training with the selected config
-python -u -m src.training.transformers_transfer_prithvi.runner --config "$CONFIG_FILE"
+python -u -m src.training.prithvi.runner --config "$CONFIG_FILE"
 exit 0

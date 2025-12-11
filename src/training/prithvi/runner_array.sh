@@ -1,8 +1,8 @@
 #!/bin/bash
 # Run a job for each config file in the configs directory
 
-CONFIGS_DIR="$HOME/scratch/CS7643-Group-Proj/src/training/transformers_transfer_prithvi/configs"
-RUNNER_SCRIPT="$HOME/scratch/CS7643-Group-Proj/src/training/transformers_transfer_prithvi/runner.sh"
+CONFIGS_DIR="$HOME/scratch/CS7643-Group-Proj/src/training/prithvi/configs"
+RUNNER_SCRIPT="$HOME/scratch/CS7643-Group-Proj/src/training/prithvi/runner.sh"
 
 # Find all config files
 CONFIG_FILES=($(find "$CONFIGS_DIR" -name "*.yaml" -o -name "*.yml" | sort))

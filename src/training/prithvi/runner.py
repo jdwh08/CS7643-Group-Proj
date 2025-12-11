@@ -1,7 +1,7 @@
 import argparse
 from pathlib import Path
 
-from src.training.transformers_transfer_prithvi.train import PrithviTrainer
+from src.training.prithvi.train import PrithviTrainer
 
 CONFIG_PATH = Path(__file__).parent / "config.yaml"
 

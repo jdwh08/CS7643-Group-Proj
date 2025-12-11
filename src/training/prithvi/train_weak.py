@@ -32,8 +32,8 @@ from terratorch.tasks import SemanticSegmentationTask
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.append(str(project_root))
 from src.data.io import IGNORE_INDEX
-from src.training.transformers_transfer_prithvi.eval import test_model
-from src.training.transformers_transfer_prithvi.sen1floods11 import (
+from src.training.prithvi.eval import test_model
+from src.training.prithvi.sen1floods11 import (
     Sen1Floods11S2WeakDataModule,
 )
 
@@ -41,11 +41,7 @@ from src.training.transformers_transfer_prithvi.sen1floods11 import (
 ### SETTINGS
 SEED = 31415926
 DATA_PATH = Path(__file__).parent.parent.parent.parent / "data"
-OUTPUT_PATH = (
-    Path(__file__).parent.parent.parent.parent
-    / "outputs"
-    / "transformers_transfer_prithvi"
-)
+OUTPUT_PATH = Path(__file__).parent.parent.parent.parent / "outputs" / "prithvi"
 
 ALL_BAND_NAMES = (
     "COASTAL_AEROSOL",
@@ -152,9 +148,7 @@ ES_THRESH = 1e-4
 class PrithviWeakConfig:
     data_path: Path = Path(__file__).parent.parent.parent.parent / "data"
     output_path: Path = (
-        Path(__file__).parent.parent.parent.parent
-        / "outputs"
-        / "transformers_transfer_prithvi"
+        Path(__file__).parent.parent.parent.parent / "outputs" / "prithvi"
     )
     main_metric: str = "val/mIoU"  # Micro-average IoU
     loss_metric: (

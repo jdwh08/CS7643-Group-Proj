@@ -6,12 +6,11 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-
-from src.training.transformers_transfer_prithvi.train_hand import (
+from src.training.prithvi.train_hand import (
     PrithviHandConfig,
     PrithviHandTrainer,
 )
-from src.training.transformers_transfer_prithvi.train_weak import (
+from src.training.prithvi.train_weak import (
     PrithviWeakConfig,
     PrithviWeakTrainer,
 )

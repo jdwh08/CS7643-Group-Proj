@@ -1,4 +1,4 @@
-# src/training/transformers_transfer_prithvi/eval.py
+# src/training/prithvi/eval.py
 #####################################################################
 # Flood Segmentation Project [Vision Transformer Transfer Learning with Prithvi]
 #####################################################################
@@ -32,13 +32,13 @@ from tqdm.auto import tqdm
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.append(str(project_root))
 from src.data.s2hand import S2HandDataset
-from src.training.transformers_transfer_prithvi.sen1floods11 import (
+from src.training.prithvi.sen1floods11 import (
     Sen1Floods11S2WeakDataModule,
 )
 
 #####################################################################
 ### SETTINGS
-OUTPUT_PATH = project_root / "outputs" / "transformers_transfer_prithvi"
+OUTPUT_PATH = project_root / "outputs" / "prithvi"
 DATA_PATH = project_root / "data"
 
 #####################################################################

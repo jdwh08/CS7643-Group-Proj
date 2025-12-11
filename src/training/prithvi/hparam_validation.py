@@ -16,7 +16,7 @@ import yaml
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.append(str(project_root))
 
-OUTPUT_PATH = project_root / "outputs" / "transformers_transfer_prithvi"
+OUTPUT_PATH = project_root / "outputs" / "prithvi"
 LOGS_HAND = OUTPUT_PATH / "logs_hand"
 LOGS_WEAK = OUTPUT_PATH / "logs_weak"
 
