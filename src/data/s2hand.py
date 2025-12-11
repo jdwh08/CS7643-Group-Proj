@@ -316,7 +316,7 @@ class S2HandDataset(Dataset[dict[str, torch.Tensor]]):
             img_t = torch.from_numpy(img).float()  # (C, H, W)
             mask_t = torch.from_numpy(mask).long()  # (H, W)
 
-            result = {"image": img_t, "mask": mask_t}
+            result = {"image": img_t * self.constant_scale, "mask": mask_t}
             if self.use_metadata:
                 # Type narrowing: if use_metadata is True, coords are not None
                 if location_coords is None or temporal_coords is None:
@@ -352,8 +352,9 @@ class S2HandDataset(Dataset[dict[str, torch.Tensor]]):
         # Mask shape: (256, 256)
         return result
 
+    @classmethod
     def clip_image(
-        self, image: np.ndarray[np.float32, Any]
+        cls, image: np.ndarray[np.float32, Any]
     ) -> np.ndarray[np.float32, Any]:
         """Clip image values to [0, 1].
 
@@ -367,8 +368,12 @@ class S2HandDataset(Dataset[dict[str, torch.Tensor]]):
         image = np.clip(image, 0, 1)
         return image
 
+    @classmethod
     def plot(
-        self, sample: dict[str, torch.Tensor], suptitle: str | None = None
+        cls,
+        sample: dict[str, torch.Tensor],
+        suptitle: str | None = None,
+        bands: Sequence[str] = ALL_BAND_NAMES,
     ) -> Figure:
         """Plot a sample from the dataset. Code adapted from TerraTorch.
 
@@ -381,16 +386,20 @@ class S2HandDataset(Dataset[dict[str, torch.Tensor]]):
         """
         num_images = 4
 
-        rgb_indices = [self.bands.index(band) for band in RGB_BANDS]
+        rgb_indices = [bands.index(band) for band in RGB_BANDS]
         if len(rgb_indices) != 3:  # noqa: PLR2004
             msg = "Dataset missing some of the RGB bands"
             raise ValueError(msg)
 
-        # RGB -> channels-last
-        image = sample["image"][rgb_indices, ...].permute(1, 2, 0).numpy()
-        image = self.clip_image(image)
+        if max(rgb_indices) > sample["image"].shape[0]:
+            msg = "Dataset missing some of the RGB bands"
+            raise ValueError(msg)
 
-        mask = sample["mask"].numpy().squeeze()
+        # RGB -> channels-last
+        image = sample["image"][rgb_indices, ...].permute(1, 2, 0).cpu().numpy()
+        image = cls.clip_image(image)
+
+        mask = sample["mask"].cpu().numpy().squeeze()
 
         if "prediction" in sample:
             prediction = sample["prediction"]
@@ -409,7 +418,6 @@ class S2HandDataset(Dataset[dict[str, torch.Tensor]]):
 
         ax[2].axis("off")
         ax[2].title.set_text("Ground Truth Mask")
-        # ERROR(jdwh08): Invalid shape (1, 224, 224) for image data
         ax[2].imshow(mask, cmap="jet", norm=norm)
 
         ax[3].axis("off")
@@ -417,8 +425,14 @@ class S2HandDataset(Dataset[dict[str, torch.Tensor]]):
         ax[3].imshow(image)
         ax[3].imshow(mask, cmap="jet", alpha=0.3, norm=norm)
 
-        if "prediction" in sample:
+        if prediction is not None:
             ax[4].title.set_text("Predicted Mask")
+            prediction = prediction.cpu()
+            if len(prediction.shape) == 3:
+                # We only want the water probability (1)
+                prediction = prediction.argmax(dim=0)
+                # prediction = prediction[1, :, :]
+            prediction = prediction.numpy()
             ax[4].imshow(prediction, cmap="jet", norm=norm)
 
         cmap = plt.get_cmap("jet")
@@ -439,5 +453,5 @@ if __name__ == "__main__":
     dataset = S2HandDataset()
     sample = dataset[0]
     print(sample["image"].shape)
-    fig = dataset.plot(sample)
+    fig = dataset.plot(sample, bands=ALL_BAND_NAMES)
     fig.savefig("s2hand.png")

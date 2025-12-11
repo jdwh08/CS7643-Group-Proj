@@ -1,11 +1,14 @@
-# src/training/transformers_transfer_prithvi/sen1floods11.py
+# src/training/prithvi/sen1floods11.py
 
 #################################################
-# Sen1Floods data adaptor to TerraTorch
+# Sen1Floods data adaptor
 #################################################
 
 # NOTE: Interface adapted from the Terratorch project
 # Uses datasets and augmentations from src/data/loaders.py
+
+#################################################
+### IMPORTS
 
 from collections.abc import Sequence
 from typing import Any
@@ -17,13 +20,15 @@ from src.data.s2augmentations import (
 )
 from src.data.s2hand import ALL_BAND_NAMES, S2HandDataset
 from src.data.s2weak import S2WeakDataset
+
+### EXTERNAL IMPORTS
 from torch import Tensor
 from torch.utils.data import DataLoader
 from torchgeo.datamodules import NonGeoDataModule
 
+
 #################################################
-
-
+### CODE
 class Sen1Floods11S2HandDataModule(NonGeoDataModule):
     """NonGeo DataModule implementation for Sen1Floods11 Sentinel-2 Hand-labeled data.
 
@@ -169,6 +174,9 @@ class Sen1Floods11S2WeakDataModule(NonGeoDataModule):
 
     Uses S2WeakDataset and augmentations from src/data/loaders.py.
     Note: Weakly-labeled data always uses train augmentation.
+
+    We also change this to use hand data for validation and test
+    in order to align with the rest of the project.
     """
 
     def __init__(
@@ -205,7 +213,6 @@ class Sen1Floods11S2WeakDataModule(NonGeoDataModule):
                 (time and location). Defaults to False.
             **kwargs: Additional keyword arguments.
         """
-        # Don't pass dataset_class since we create datasets directly in setup()
         super().__init__(None, batch_size, num_workers, **kwargs)  # type: ignore[arg-type]
         self.data_root = data_root
 
@@ -218,15 +225,19 @@ class Sen1Floods11S2WeakDataModule(NonGeoDataModule):
         self.no_data_replace = no_data_replace
         self.use_metadata = use_metadata
 
-        # Weakly-labeled data always uses train augmentation
+        # Create transforms using the same functions as make_s2hand_loaders
         self.train_transform = get_s2_train_transform(
             image_size=image_size, bands=self.bands
         )
-        # For consistency with DataModule interface, but weak data only uses
-        # train transform
-        self.val_transform = self.train_transform
-        self.test_transform = self.train_transform
-        self.predict_transform = self.train_transform
+        self.val_transform = get_s2_val_transform(
+            image_size=image_size, bands=self.bands
+        )
+        self.test_transform = get_s2_val_transform(
+            image_size=image_size, bands=self.bands
+        )
+        self.predict_transform = get_s2_val_transform(
+            image_size=image_size, bands=self.bands
+        )
 
     def setup(self, stage: str) -> None:
         """Set up datasets.
@@ -235,11 +246,8 @@ class Sen1Floods11S2WeakDataModule(NonGeoDataModule):
             stage: Either fit, validate, test, or predict.
 
         Note:
-            Weakly-labeled data doesn't have splits, so all stages use the
-            same dataset.
+            To align, we use the hand data for validation and test...
         """
-        # Weakly-labeled data doesn't have train/val/test splits
-        # All stages use the same dataset with train augmentation
         if stage in ["fit"]:
             self.train_dataset = S2WeakDataset(
                 data_root=self.data_root,
@@ -250,31 +258,37 @@ class Sen1Floods11S2WeakDataModule(NonGeoDataModule):
                 use_metadata=self.use_metadata,
             )
         if stage in ["fit", "validate"]:
-            self.val_dataset = S2WeakDataset(
+            # self.val_dataset = S2WeakDataset(
+            self.val_dataset = S2HandDataset(
                 data_root=self.data_root,
-                transform=self.train_transform,
+                transform=self.val_transform,
                 bands=self.bands,
                 max_samples=self.max_samples,
                 no_data_replace=self.no_data_replace,
                 use_metadata=self.use_metadata,
+                split="valid",
             )
         if stage in ["test"]:
-            self.test_dataset = S2WeakDataset(
+            # self.test_dataset = S2WeakDataset(
+            self.test_dataset = S2HandDataset(
                 data_root=self.data_root,
-                transform=self.train_transform,
+                transform=self.test_transform,
                 bands=self.bands,
                 max_samples=self.max_samples,
                 no_data_replace=self.no_data_replace,
                 use_metadata=self.use_metadata,
+                split="test",
             )
         if stage in ["predict"]:
-            self.predict_dataset = S2WeakDataset(
+            # self.predict_dataset = S2WeakDataset(
+            self.predict_dataset = S2HandDataset(
                 data_root=self.data_root,
-                transform=self.train_transform,
+                transform=self.predict_transform,
                 bands=self.bands,
                 max_samples=self.max_samples,
                 no_data_replace=self.no_data_replace,
                 use_metadata=self.use_metadata,
+                split="bolivia",
             )
 
     def _dataloader_factory(self, split: str) -> DataLoader[dict[str, Tensor]]:

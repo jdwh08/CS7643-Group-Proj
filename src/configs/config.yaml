@@ -1,0 +1,48 @@
+data: weak
+
+# Global defaults for Prithvi trainers. Values are taken from PrithviHandConfig
+# and can be overridden per-dataset (see the `hand` block below).
+settings:
+  main_metric: val/mIoU
+  loss_metric: 
+    lovasz: 0.8
+    focal: 0.2
+  class_weights: [0.35, 0.65]
+  train_batch_size: 16
+  bands:
+    - BLUE
+    - GREEN
+    - RED
+    - RED_EDGE_2
+    - NIR_NARROW
+    - SWIR_1
+    - SWIR_2
+  backbone: prithvi_eo_v2_300_tl
+  decoder: UperNetDecoder
+  decoder_channels: 512
+  decoder_scale_modules: true
+  head_dropout: 0.1
+  weight_decay: 0.1
+  lr: 0.0001
+  train_epochs: 50
+  scheduler: CosineAnnealingLR
+  scheduler_hparams:
+    T_max: 50
+    eta_min: 1.0e-10
+  es_patience: 10
+  es_thresh: 0.0001
+  num_workers: 8
+  pin_memory: true
+  prefetch_factor: 2
+  persistent_workers: true
+  precision: 16-mixed
+  log_every_n_steps: 1
+  freeze_backbone: false
+  freeze_decoder: false
+  save_last: true
+  seed: 31415926
+
+# Dataset-specific overrides
+hand: {}
+weak: {}
+
